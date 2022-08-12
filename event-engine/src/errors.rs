@@ -1,7 +1,6 @@
 use thiserror::Error;
 use uuid::Uuid;
 
-
 // pub enum ErrorCriticality {
 //     Recoverable,
 //     RestartRequired,
@@ -38,19 +37,19 @@ use uuid::Uuid;
 
 /// EngineError enumerates all possible error types returned by the event-engine framework.
 #[derive(Error, Debug)]
-pub enum EngineError<'a> {
+pub enum EngineError {
     #[error("Engine could not create subscription socket")]
     SubSocketCreateError(#[from] zmq::Error),
 
     #[error("Engine could not bind subscription socket to TCP port {0}")]
     SubSocketTCPBindError(String),
-    
+
     #[error("Engine could not bind subscription socket to inproc URL {0}")]
     SubSocketInProcBindError(String),
 
     #[error("Engine could not bind publish socket to TCP port {0}")]
     PubSocketTCPBindError(String),
-    
+
     #[error("Engine could not bind publish socket to inproc URL {0}")]
     PubSocketInProcBindError(String),
 
@@ -67,7 +66,7 @@ pub enum EngineError<'a> {
     PluginSyncSocketError(Uuid, i32),
 
     #[error("Engine could not set the subscription filter on the socket.")]
-    EngineSetSubFilterError(),    
+    EngineSetSubFilterError(),
 
     #[error("Plugin {0} failed to send the 'ready' sync message")]
     PluginSyncSendError(Uuid),
@@ -79,13 +78,11 @@ pub enum EngineError<'a> {
     EngineSyncSocketTCPBindError(i32),
 
     #[error("Engine failed to bind to the sync socket to inproc URL {0}")]
-    EngineSyncSocketInprocBindError(&'a String),
+    EngineSyncSocketInprocBindError(String),
 
     #[error("Engine failed to receive a message on the sync socket.")]
     EngineSyncSocketMsgRcvError(),
 
     #[error("Engine failed to send a message on the sync socket.")]
     EngineSyncSocketSendRcvError(),
-
-
 }
