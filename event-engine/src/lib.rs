@@ -107,7 +107,7 @@ impl App {
         let filter = String::new();
         incoming
             .set_subscribe(filter.as_bytes())
-            .map_err(|e| EngineError::EngineSetSubFilterAllError(e))?;
+            .map_err(EngineError::EngineSetSubFilterAllError)?;
         Ok(incoming)
     }
 
@@ -365,9 +365,7 @@ mod tests {
     use std::{
         str,
         sync::{Arc, Mutex},
-        vec,
-        thread, 
-        time,
+        thread, time, vec,
     };
 
     use zmq::Socket;
@@ -486,7 +484,6 @@ mod tests {
                 "MsgProducer (plugin id {}) start function starting...",
                 self.get_id()
             );
-            thread::sleep(time::Duration::from_secs(1));
             println!(
                 "MsgProducer (plugin id {}) finished 1 second sleep",
                 self.get_id()
