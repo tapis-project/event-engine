@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use crate::{errors::EngineError, events::EventType};
 use uuid::Uuid;
 use zmq::Socket;
@@ -10,7 +12,11 @@ pub trait Plugin: Sync + Send {
     /// thread and execute this function.
     /// the pub_socket is used by the plugin to publish new events.
     /// the sub_socket is used by the plugin to get events published by other plugins.
-    fn start(&self, pub_socket: Socket, sub_socket: Socket) -> Result<(), EngineError>;
+    fn start(
+        &self,
+        pub_socket: Arc<Mutex<Socket>>,
+        sub_socket: Arc<Mutex<Socket>>,
+    ) -> Result<(), EngineError>;
 
     /// Return the event subscriptions, as a vector of strings, that this plugin is interested
     /// in.

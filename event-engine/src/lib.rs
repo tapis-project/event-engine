@@ -68,8 +68,8 @@ impl App {
         }
     }
 
-    // create the zmq socket to be used for 'outgoing' events; i.e., the events the plugins will receive
-    // on the subscriptions socket
+    /// create the zmq socket to be used for 'outgoing' events; i.e., the events the plugins will receive
+    /// on the subscriptions socket
     fn get_sub_socket(&self) -> Result<Socket, EngineError> {
         let socket_data = SocketData::default();
         let sub_socket_tcp_url = format!("tcp://*:{}", self.app_config.subscribe_port);
@@ -87,7 +87,7 @@ impl App {
         Ok(outgoing)
     }
 
-    // create the zmq socket to be used for 'incoming' events; i.e., events published by the plugins
+    /// create the zmq socket to be used for 'incoming' events; i.e., events published by the plugins
     fn get_pub_socket(&self) -> Result<Socket, EngineError> {
         let socket_data = SocketData::default();
         let pub_socket_tcp_url = format!("tcp://*:{}", self.app_config.publish_port);
@@ -105,10 +105,19 @@ impl App {
         Ok(outgoing)
     }
 
+    /// start a plugin. this function does the following:
+    ///   1) creates the publish and subscribe socket objects that the plugin will use for events.
+    ///   2) confgures the plugin's sub socket with the plugin's subscrptions
+    ///   3) creates the sync socket that the plugin will use to sync with the engine
+    ///   4) clones the socket objects, starts a thread, and moves ownership of the cloned objects into the thread.
+    ///   -- from within the thread --
+    ///   5) sends the 'ready' message on the sync socket.
+    ///   6) waits for the engine's reply on the sync socket.
+    ///   7) executes the plugin's start() function.
     fn start_plugin(
         &self,
         context: &zmq::Context,
-        plugin: &'static Arc<Mutex<Box<dyn Plugin>>>,
+        plugin: Arc<Mutex<Box<dyn Plugin>>>,
     ) -> Result<(), EngineError> {
         let socket_data = SocketData::default();
         // Create the socket that plugin will use to publish new events
@@ -143,6 +152,11 @@ impl App {
                 )
             })?;
         }
+        println!(
+            "plugin {} connected to sub socket with subscriptions set.",
+            plugin.lock().unwrap().get_id()
+        );
+
         // Create the sync socket that plugin will use to sync with engine and other plugins
         let sync = context.socket(zmq::REQ).map_err(|_e| {
             EngineError::PluginSyncSocketError(
@@ -150,85 +164,162 @@ impl App {
                 socket_data.sync_socket_port,
             )
         })?;
-        // connect the sync socket to the inproc URL
+        // connect the sync socket to the inproc URL.
+        // the URL must be different for EACH plugin. this is because the engine receives ALL sync ready messages
+        // from all plugins before sending any replies, and the zmq REQ-REP sockets only allow one request per
+        // reply.
         // NOTE: since this sync object is for use in the plugin (running in a thread), it will always
         // be used via inproc (threads use inproc).. therefore, we do not connect to the TCP URL.
-        sync.connect(&socket_data.sync_inproc_url).map_err(|_e| {
+        let plugin_sync_socket_inproc_url = format!(
+            "{}-{}",
+            &socket_data.sync_inproc_url,
+            plugin.lock().unwrap().get_id()
+        );
+
+        sync.connect(&plugin_sync_socket_inproc_url).map_err(|_e| {
             EngineError::PluginSyncSocketError(
                 plugin.lock().unwrap().get_id(),
                 socket_data.sync_socket_port,
             )
         })?;
+        println!(
+            "plugin {} connected to sync socket at URL: {}.",
+            plugin.lock().unwrap().get_id(),
+            plugin_sync_socket_inproc_url
+        );
+
+        // clone the publish and subscribe sockets so they can be passed in
+        let pub_socket_arc = Arc::clone(&Arc::new(Mutex::new(pub_socket)));
+        let sub_socket_arc = Arc::clone(&Arc::new(Mutex::new(sub_socket)));
+        let sync_socket_arc = Arc::clone(&Arc::new(Mutex::new(sync)));
 
         // start the plugin thread. we start all plugin threads before the call to sync_plugins
         // so that plugins will be starting up and able to send the 'ok' message
         thread::spawn(move || {
+            println!("plugin {} thread started.", plugin.lock().unwrap().get_id());
+
             // connect to and send sync message on sync socket
             let msg = "ready";
-            sync.send(msg, 0)
+            sync_socket_arc
+                .lock()
+                .unwrap()
+                .send(msg, 0)
                 .expect("Could not start thread for plugin; crashing!");
+            println!(
+                "plugin {} sent ready message.",
+                plugin.lock().unwrap().get_id()
+            );
+
             // TODO -- couldn't get this error handling to work...
             // .map_err(|_e| EngineError::PluginSyncSendError(plugin.get_id()))?;
 
             // blocking call to wait for reply from engine
-            let _msg = sync
+            let _msg = sync_socket_arc
+                .lock()
+                .unwrap()
                 .recv_msg(0)
                 .expect("plugin got error trying to receive sync reply; crashing!");
+
+            println!(
+                "plugin {} received reply from ready message. Executing start function...",
+                plugin.lock().unwrap().get_id()
+            );
 
             // now execute the actual plugin function
             plugin
                 .lock()
                 .unwrap()
-                .start(pub_socket, sub_socket)
+                .start(pub_socket_arc, sub_socket_arc)
                 .unwrap();
         });
         Ok(())
     }
 
+    /// this function synchronizes all plugins to handle plugins that might start up more slowly than others.
+    /// it utilizes a set of REQ-REP zmq sockets -- one for each plugin.
+    /// the basic algorithm is:
+    ///   1) wait to receive ready messages from all plugins; it does this by doing a recv on each socket
+    ///   2) send an OK to all plugins
+    /// note: that we must use different sync sockets since the zmq REQ-REP socket only allows for the receipt of
+    /// one message before sending a reply and we must recieve 'ready' messages from all plugins before replying.
+    /// note: this function currently DOES NOT sync external plugins. this is left as a TODO.
     fn sync_plugins(&self, context: &zmq::Context) -> Result<(), EngineError> {
         let socket_data = SocketData::default();
-        // wait for a message from all plugins
-        let total_plugins = self.plugins.len();
-        let sync_socket = context
-            .socket(zmq::REP)
-            .map_err(|_e| EngineError::EngineSyncSocketCreateError())?;
-        let sync_tcp_url = format!("tcp://*{}", socket_data.sync_socket_port);
-        // here, we bind to BOTH the tcp and inproc endpoints, since plugins could be syncing on other.
-        sync_socket.bind(&sync_tcp_url).map_err(|_e| {
-            EngineError::EngineSyncSocketTCPBindError(socket_data.sync_socket_port)
-        })?;
-        sync_socket
-            .bind(&socket_data.sync_inproc_url)
-            .map_err(|_e| {
-                EngineError::EngineSyncSocketInprocBindError(socket_data.sync_inproc_url)
-            })?;
+        // set of all sync sockets engine will use
+        let mut sync_sockets = Vec::<zmq::Socket>::new();
 
-        let mut ready_plugins = 0;
-        while ready_plugins < total_plugins {
-            // receive message from plugin
+        // iterate through each pluging, creating a sync socket for it using its id, and waiting
+        // for a ready message
+        for plugin in &self.plugins {
+            let sync_socket = context
+                .socket(zmq::REP)
+                .map_err(|_e| EngineError::EngineSyncSocketCreateError())?;
+
+            // TODO --
+            // in the future, we will bind to BOTH the tcp and inproc endpoints, since plugins could be
+            // syncing on either. for now, we just bind to inproc, since we haven't worked out external
+            // plugins
+            // ----------------------------------
+            // let sync_tcp_url = format!("tcp://*:{}", socket_data.sync_socket_port);
+            // println!("Engine binding to sync TCP URL: {}", sync_tcp_url);
+
+            // sync_socket.bind(&sync_tcp_url).map_err(|e| {
+            //     EngineError::EngineSyncSocketTCPBindError(socket_data.sync_socket_port, e)
+            // })?;
+            // ----------------------------------
+
+            // bind sync socket to inproc URL
+            let plugin_sync_socket_inproc_url = format!(
+                "{}-{}",
+                &socket_data.sync_inproc_url,
+                plugin.lock().unwrap().get_id()
+            );
+            println!(
+                "Engine binding to sync inproc URL: {}",
+                &plugin_sync_socket_inproc_url
+            );
+            sync_socket
+                .bind(&plugin_sync_socket_inproc_url)
+                .map_err(|_e| {
+                    EngineError::EngineSyncSocketInprocBindError(plugin_sync_socket_inproc_url)
+                })?;
+            // receive ready message from plugin
             let _msg = sync_socket
                 .recv_msg(0)
-                .map_err(|_e| EngineError::EngineSyncSocketMsgRcvError())?;
-            ready_plugins += 1;
+                .map_err(EngineError::EngineSyncSocketMsgRcvError)?;
+            println!(
+                "Engine received a ready message from plugin {}",
+                plugin.lock().unwrap().get_id()
+            );
+            sync_sockets.push(sync_socket);
         }
+
+        println!("Engine received all ready messages; now sending replies.");
+
         // send a reply to all plugins
         let mut msg_sent = 0;
-        while msg_sent < total_plugins {
+        while msg_sent < self.plugins.len() {
             let reply = "ok";
+            let sync_socket = sync_sockets
+                .pop()
+                .ok_or(EngineError::EngineSyncSocketPopError())?;
             sync_socket
                 .send(reply, 0)
-                .map_err(|_e| EngineError::EngineSyncSocketSendRcvError())?;
+                .map_err(EngineError::EngineSyncSocketSendRcvError)?;
             msg_sent += 1;
+            println!("Engine sent a reply");
         }
+        println!("All plugins have been synced");
 
         Ok(())
     }
 
-    fn start_plugins(&'static self) -> Result<(), EngineError> {
+    fn start_plugins(self) -> Result<(), EngineError> {
         // call start_plugin with the zmq context and the config for each plugin,
         // as defined in the PLUGINS constant
         for plugin in &self.plugins {
-            self.start_plugin(&self.context, plugin)?;
+            let p = Arc::clone(plugin);
+            self.start_plugin(&self.context, p)?;
         }
         // once all plugins have been started, sync them with individual messages on the
         // REQ-REP sockets
@@ -241,7 +332,8 @@ impl App {
         self
     }
 
-    pub fn run(&'static mut self) -> Result<&Self, EngineError> {
+    pub fn run(self) -> Result<(), EngineError> {
+        println!("Engine starting application with {} plugins on publish port: {} and subscribe port: {}.", self.plugins.len(), self.app_config.publish_port, self.app_config.subscribe_port);
         // incoming and outgoing sockets for the engine
         let sub_socket = self.get_sub_socket()?;
         let pub_socket = self.get_pub_socket()?;
@@ -252,7 +344,7 @@ impl App {
         let _result = zmq::proxy(&pub_socket, &sub_socket)
             .expect("Engine got error running proxy; socket was closed?");
 
-        Ok(self)
+        Ok(())
     }
 }
 
@@ -260,12 +352,16 @@ impl App {
 mod tests {
 
     use std::{
+        fmt::format,
         str,
         sync::{Arc, Mutex},
         vec,
     };
 
+    use zmq::Socket;
+
     use crate::{
+        errors::EngineError,
         events::{Event, EventType},
         plugins::Plugin,
         App,
@@ -372,29 +468,40 @@ mod tests {
     impl Plugin for MsgProducerPlugin {
         fn start(
             &self,
-            pub_socket: zmq::Socket,
-            sub_socket: zmq::Socket,
+            pub_socket: Arc<Mutex<Socket>>,
+            sub_socket: Arc<Mutex<Socket>>,
         ) -> Result<(), crate::errors::EngineError> {
+            println!("MsgProducer start function starting...");
             // send 5 messages
             let mut total_messages_sent = 0;
             while total_messages_sent < 5 {
                 let message = format!("This is message {}", total_messages_sent);
                 let m = TypeAEvent { message };
                 let data = m.to_bytes().unwrap();
-                pub_socket.send(data, 0).unwrap();
+                pub_socket.lock().unwrap().send(data, 0).unwrap();
                 total_messages_sent += 1;
+                println!(
+                    "MsgProducer sent TypeA event message: {}",
+                    total_messages_sent
+                );
             }
+            println!("MsgProducer has sent all TypeA event messages, now waiting to receive TypeB events");
 
             // now get the TypeB events
             let mut total_messages_read = 0;
             while total_messages_read < 5 {
                 // get the bytes of a new message; it should be of TypeB
-                let b = sub_socket.recv_bytes(0).unwrap();
+                let b = sub_socket.lock().unwrap().recv_bytes(0).unwrap();
                 let event_msg = TypeBEvent::from_bytes(b);
                 let count = event_msg.count;
                 println!("Got a type B message; count was: {}", count);
                 total_messages_read += 1;
+                println!(
+                    "MsgProducer received TypeB event message: {}",
+                    total_messages_read
+                );
             }
+            println!("MsgProducer has received all TypeB event messages, quiting");
 
             Ok(())
         }
@@ -424,20 +531,27 @@ mod tests {
     impl Plugin for CounterPlugin {
         fn start(
             &self,
-            pub_socket: zmq::Socket,
-            sub_socket: zmq::Socket,
+            pub_socket: Arc<Mutex<Socket>>,
+            sub_socket: Arc<Mutex<Socket>>,
         ) -> Result<(), crate::errors::EngineError> {
+            println!("Counter start function starting...");
             // compute the counts of the first 5 messages
-            let total_messages_read = 0;
+            let mut total_messages_read = 0;
             while total_messages_read < 5 {
                 // get the bytes of a new message; it should be of TypeA
-                let b = sub_socket.recv_bytes(0).unwrap();
+                let b = sub_socket.lock().unwrap().recv_bytes(0).unwrap();
                 let event_msg = TypeAEvent::from_bytes(b);
                 let count = event_msg.message.len();
+                total_messages_read += 1;
+                println!(
+                    "Counter plugin received TypeA message: {}",
+                    total_messages_read
+                );
                 // send a TypeB event
                 let m = TypeBEvent { count };
                 let data = m.to_bytes().unwrap();
-                pub_socket.send(data, 0).unwrap();
+                pub_socket.lock().unwrap().send(data, 0).unwrap();
+                println!("Counter plugin sent TypeB message: {}", total_messages_read);
             }
 
             Ok(())
@@ -453,14 +567,16 @@ mod tests {
     }
 
     #[test]
-    fn test_run_app() {
+    fn test_run_app() -> Result<(), String> {
         // the plugins for our app
         let msg_producer = MsgProducerPlugin::new();
         let counter = CounterPlugin::new();
-        let app = App::new(5559, 5560);
+        let app: App = App::new(5559, 5560);
         app.register_plugin(Arc::new(Mutex::new(Box::new(msg_producer))))
-            .register_plugin(Arc::new(Mutex::new(Box::new(counter))));
-        // runs forever...
-        // app.run().unwrap();
+            .register_plugin(Arc::new(Mutex::new(Box::new(counter))))
+            .run()
+            .map_err(|e| format!("Got error from Engine! Details: {}", e))?;
+
+        Ok(())
     }
 }

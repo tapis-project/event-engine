@@ -74,15 +74,18 @@ pub enum EngineError {
     #[error("Engine failed to create sync socket")]
     EngineSyncSocketCreateError(),
 
-    #[error("Engine failed to bind to the sync socket on TCP port {0}")]
-    EngineSyncSocketTCPBindError(i32),
+    #[error("Engine failed to bind to the sync socket on TCP port {0}; details: {1}")]
+    EngineSyncSocketTCPBindError(i32, zmq::Error),
 
     #[error("Engine failed to bind to the sync socket to inproc URL {0}")]
     EngineSyncSocketInprocBindError(String),
 
-    #[error("Engine failed to receive a message on the sync socket.")]
-    EngineSyncSocketMsgRcvError(),
+    #[error("Engine failed to receive a message on the sync socket; details: {0}")]
+    EngineSyncSocketMsgRcvError(zmq::Error),
 
-    #[error("Engine failed to send a message on the sync socket.")]
-    EngineSyncSocketSendRcvError(),
+    #[error("Engine failed to pop sync socket")]
+    EngineSyncSocketPopError(),
+
+    #[error("Engine failed to send a message on the sync socket; details: {0}")]
+    EngineSyncSocketSendRcvError(zmq::Error),
 }
