@@ -142,6 +142,10 @@ impl App {
         let sub_socket = context
             .socket(zmq::SUB)
             .map_err(|_e| EngineError::PluginSubSocketError(plugin.lock().unwrap().get_id()))?;
+        sub_socket
+            .connect(&socket_data.sub_socket_inproc_url)
+            .map_err(|_e| EngineError::PluginPubSocketError(plugin.lock().unwrap().get_id()))?;
+
         // Subscribe only to events of interest for this plugin
         for sub in plugin.lock().unwrap().get_subscriptions()? {
             let filter = sub
@@ -362,6 +366,8 @@ mod tests {
         str,
         sync::{Arc, Mutex},
         vec,
+        thread, 
+        time,
     };
 
     use zmq::Socket;
@@ -434,7 +440,7 @@ mod tests {
     impl TypeBEvent {
         fn from_bytes(mut b: Vec<u8>) -> TypeBEvent {
             // remove the first 5 bytes which are the message type
-            for _i in 1..5 {
+            for _i in 0..5 {
                 b.remove(0);
             }
             let msg = str::from_utf8(&b).unwrap();
@@ -480,6 +486,12 @@ mod tests {
                 "MsgProducer (plugin id {}) start function starting...",
                 self.get_id()
             );
+            thread::sleep(time::Duration::from_secs(1));
+            println!(
+                "MsgProducer (plugin id {}) finished 1 second sleep",
+                self.get_id()
+            );
+
             // send 5 messages
             let mut total_messages_sent = 0;
             while total_messages_sent < 5 {
@@ -501,6 +513,7 @@ mod tests {
             while total_messages_read < 5 {
                 // get the bytes of a new message; it should be of TypeB
                 let b = sub_socket.lock().unwrap().recv_bytes(0).unwrap();
+                println!("MsgProducer received TypeB message; bytes: {:?}", b);
                 let event_msg = TypeBEvent::from_bytes(b);
                 let count = event_msg.count;
                 println!("Got a type B message; count was: {}", count);
@@ -510,7 +523,7 @@ mod tests {
                     total_messages_read
                 );
             }
-            println!("MsgProducer has received all TypeB event messages, quiting");
+            println!("MsgProducer has received all TypeB event messages; now exiting.");
 
             Ok(())
         }
@@ -551,7 +564,8 @@ mod tests {
             let mut total_messages_read = 0;
             while total_messages_read < 5 {
                 // get the bytes of a new message; it should be of TypeA
-                let b = sub_socket.lock().unwrap().recv_bytes(0).unwrap();
+                let sock = sub_socket.lock().unwrap();
+                let b = sock.recv_bytes(0).unwrap();
                 let event_msg = TypeAEvent::from_bytes(b);
                 let count = event_msg.message.len();
                 total_messages_read += 1;
@@ -565,6 +579,7 @@ mod tests {
                 pub_socket.lock().unwrap().send(data, 0).unwrap();
                 println!("Counter plugin sent TypeB message: {}", total_messages_read);
             }
+            println!("Counter plugin has sent all TypeB messages; now exiting.");
 
             Ok(())
         }
