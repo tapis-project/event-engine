@@ -68,6 +68,9 @@ pub enum EngineError {
     #[error("Engine could not set the subscription filter on the socket.")]
     EngineSetSubFilterError(),
 
+    #[error("Engine could not set the 'all' wildcard filter for its incoming socket; details: {0}")]
+    EngineSetSubFilterAllError(zmq::Error),
+
     #[error("Plugin {0} failed to send the 'ready' sync message")]
     PluginSyncSendError(Uuid),
 
