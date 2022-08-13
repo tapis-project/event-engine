@@ -70,9 +70,10 @@ impl App {
 
     /// create the zmq socket to be used for 'outgoing' events; i.e., the events the plugins will receive
     /// on the subscriptions socket
-    fn get_sub_socket(&self) -> Result<Socket, EngineError> {
+    fn get_outgoing_socket(&self) -> Result<Socket, EngineError> {
         let socket_data = SocketData::default();
         let sub_socket_tcp_url = format!("tcp://*:{}", self.app_config.subscribe_port);
+        // from the engine's perspective, this socket is a PUB
         let outgoing = self.context.socket(zmq::PUB)?;
         // bind the socket to the TCP port
         outgoing.bind(&sub_socket_tcp_url).map_err(|_e| {
@@ -88,21 +89,26 @@ impl App {
     }
 
     /// create the zmq socket to be used for 'incoming' events; i.e., events published by the plugins
-    fn get_pub_socket(&self) -> Result<Socket, EngineError> {
+    fn get_incoming_socket(&self) -> Result<Socket, EngineError> {
         let socket_data = SocketData::default();
         let pub_socket_tcp_url = format!("tcp://*:{}", self.app_config.publish_port);
-        let outgoing = self.context.socket(zmq::PUB)?;
+        let incoming = self.context.socket(zmq::SUB)?;
         // bind the socket to the TCP port
-        outgoing.bind(&pub_socket_tcp_url).map_err(|_e| {
+        incoming.bind(&pub_socket_tcp_url).map_err(|_e| {
             EngineError::PubSocketTCPBindError(self.app_config.subscribe_port.to_string())
         })?;
         // bind the socket to the inproc URL
-        outgoing
+        incoming
             .bind(&socket_data.pub_socket_inproc_url)
             .map_err(|_e| {
                 EngineError::PubSocketInProcBindError(socket_data.pub_socket_inproc_url.to_string())
             })?;
-        Ok(outgoing)
+        // subscribe to all events
+        let filter = String::new();
+        incoming
+            .set_subscribe(filter.as_bytes())
+            .map_err(|e| EngineError::EngineSetSubFilterAllError(e))?;
+        Ok(incoming)
     }
 
     /// start a plugin. this function does the following:
@@ -141,7 +147,7 @@ impl App {
             let filter = sub
                 .get_filter()
                 .map_err(|_e| EngineError::EngineSetSubFilterError())?;
-
+            println!("Engine setting subscription filter {:?}", filter);
             // TODO -- the following error handling doesn't work; compiler complains, "cannot return value referencing
             // local data"; that is, we cannot return the EngineError..
             // let filter = sub.get_filter()?;
@@ -335,13 +341,14 @@ impl App {
     pub fn run(self) -> Result<(), EngineError> {
         println!("Engine starting application with {} plugins on publish port: {} and subscribe port: {}.", self.plugins.len(), self.app_config.publish_port, self.app_config.subscribe_port);
         // incoming and outgoing sockets for the engine
-        let sub_socket = self.get_sub_socket()?;
-        let pub_socket = self.get_pub_socket()?;
+        let outgoing = self.get_outgoing_socket()?;
+        let incoming = self.get_incoming_socket()?;
 
         // start plugins in their own thread
         self.start_plugins()?;
 
-        let _result = zmq::proxy(&pub_socket, &sub_socket)
+        println!("Engine starting zmq proxy.");
+        let _result = zmq::proxy(&incoming, &outgoing)
             .expect("Engine got error running proxy; socket was closed?");
 
         Ok(())
@@ -352,7 +359,6 @@ impl App {
 mod tests {
 
     use std::{
-        fmt::format,
         str,
         sync::{Arc, Mutex},
         vec,
@@ -361,14 +367,13 @@ mod tests {
     use zmq::Socket;
 
     use crate::{
-        errors::EngineError,
         events::{Event, EventType},
         plugins::Plugin,
         App,
     };
 
-    // Here we provide two simple, example event types. TypeA, which has a single string field, and TypeB which has a single
-    // integer field.
+    // Here we provide two simple, example event types. TypeA, which has a single string field,
+    // and TypeB which has a single integer field.
     struct TypeAEventType {}
     impl EventType for TypeAEventType {
         fn get_name(&self) -> &'static str {
@@ -471,13 +476,17 @@ mod tests {
             pub_socket: Arc<Mutex<Socket>>,
             sub_socket: Arc<Mutex<Socket>>,
         ) -> Result<(), crate::errors::EngineError> {
-            println!("MsgProducer start function starting...");
+            println!(
+                "MsgProducer (plugin id {}) start function starting...",
+                self.get_id()
+            );
             // send 5 messages
             let mut total_messages_sent = 0;
             while total_messages_sent < 5 {
                 let message = format!("This is message {}", total_messages_sent);
                 let m = TypeAEvent { message };
                 let data = m.to_bytes().unwrap();
+                println!("MsgProducer sending bytes: {:?}", data);
                 pub_socket.lock().unwrap().send(data, 0).unwrap();
                 total_messages_sent += 1;
                 println!(
@@ -534,7 +543,10 @@ mod tests {
             pub_socket: Arc<Mutex<Socket>>,
             sub_socket: Arc<Mutex<Socket>>,
         ) -> Result<(), crate::errors::EngineError> {
-            println!("Counter start function starting...");
+            println!(
+                "Counter (plugin id {}) start function starting...",
+                self.get_id()
+            );
             // compute the counts of the first 5 messages
             let mut total_messages_read = 0;
             while total_messages_read < 5 {
