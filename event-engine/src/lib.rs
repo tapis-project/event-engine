@@ -1,6 +1,6 @@
 use std::{
     sync::{Arc, Mutex},
-    thread,
+    thread::{self, JoinHandle},
 };
 
 use errors::EngineError;
@@ -124,7 +124,7 @@ impl App {
         &self,
         context: &zmq::Context,
         plugin: Arc<Mutex<Box<dyn Plugin>>>,
-    ) -> Result<(), EngineError> {
+    ) -> Result<JoinHandle<()>, EngineError> {
         let socket_data = SocketData::default();
         // Create the socket that plugin will use to publish new events
         let pub_socket = context
@@ -205,7 +205,7 @@ impl App {
 
         // start the plugin thread. we start all plugin threads before the call to sync_plugins
         // so that plugins will be starting up and able to send the 'ok' message
-        thread::spawn(move || {
+        let thread_handle = thread::spawn(move || {
             println!("plugin {} thread started.", plugin.lock().unwrap().get_id());
 
             // connect to and send sync message on sync socket
@@ -214,7 +214,7 @@ impl App {
                 .lock()
                 .unwrap()
                 .send(msg, 0)
-                .expect("Could not start thread for plugin; crashing!");
+                .expect("Could not send ready message on thread for plugin; crashing!");
             println!(
                 "plugin {} sent ready message.",
                 plugin.lock().unwrap().get_id()
@@ -242,7 +242,7 @@ impl App {
                 .start(pub_socket_arc, sub_socket_arc)
                 .unwrap();
         });
-        Ok(())
+        Ok(thread_handle)
     }
 
     /// this function synchronizes all plugins to handle plugins that might start up more slowly than others.
@@ -324,17 +324,18 @@ impl App {
         Ok(())
     }
 
-    fn start_plugins(self) -> Result<(), EngineError> {
+    fn start_plugins(self) -> Result<Vec<JoinHandle<()>>, EngineError> {
         // call start_plugin with the zmq context and the config for each plugin,
         // as defined in the PLUGINS constant
+        let mut thread_handles = vec![];
         for plugin in &self.plugins {
             let p = Arc::clone(plugin);
-            self.start_plugin(&self.context, p)?;
+            thread_handles.push(self.start_plugin(&self.context, p)?);
         }
         // once all plugins have been started, sync them with individual messages on the
         // REQ-REP sockets
         self.sync_plugins(&self.context)?;
-        Ok(())
+        Ok(thread_handles)
     }
 
     pub fn register_plugin(mut self, plugin: Arc<Mutex<Box<dyn Plugin>>>) -> Self {
@@ -348,12 +349,30 @@ impl App {
         let outgoing = self.get_outgoing_socket()?;
         let incoming = self.get_incoming_socket()?;
 
-        // start plugins in their own thread
-        self.start_plugins()?;
-
         println!("Engine starting zmq proxy.");
-        let _result = zmq::proxy(&incoming, &outgoing)
+
+        let _proxy_thread = thread::spawn(move || {
+            let _result = zmq::proxy(&incoming, &outgoing)
             .expect("Engine got error running proxy; socket was closed?");
+        });
+
+        println!("Engine has started proxy thread. Will now start and sync plugins");
+
+        // start plugins in their own thread
+        let plugin_thread_handles = self.start_plugins()?;
+
+        println!("All plugins started; Will now wait for plugins to exit...");
+
+        // join all of the plugin threads, and when they are all complete, we can kill the entire 
+        // program
+        for h in plugin_thread_handles {
+            h.join().unwrap();
+        }
+        println!("Engine joined all plugin threads.. ready to shut down.");
+        // all plugins have exited so let's kill the proxy thread now
+        // TODO -- is there a way to shut down the proxy thread using the handle? if we just exit
+        // here without terminating it, is that ok?
+    
 
         Ok(())
     }
@@ -593,14 +612,16 @@ mod tests {
     #[test]
     fn test_run_app() -> Result<(), String> {
         // the plugins for our app
+        println!("inside the test_run_app");
         let msg_producer = MsgProducerPlugin::new();
         let counter = CounterPlugin::new();
+        println!("plugins for test_run_app configured");
         let app: App = App::new(5559, 5560);
         app.register_plugin(Arc::new(Mutex::new(Box::new(msg_producer))))
             .register_plugin(Arc::new(Mutex::new(Box::new(counter))))
             .run()
             .map_err(|e| format!("Got error from Engine! Details: {}", e))?;
-
+            println!("returned from test_run_app.run()");
         Ok(())
     }
 }
