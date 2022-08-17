@@ -121,7 +121,6 @@ impl App {
     fn start_plugin(
         &self,
         context: &zmq::Context,
-        // TODO -- also, do we just need Arc and not Mutex<> here around the plugin?
         plugin: Arc<Box<dyn Plugin>>,
     ) -> Result<JoinHandle<()>, EngineError> {
         let socket_data = SocketData::default();
@@ -171,12 +170,9 @@ impl App {
                 // local data"; that is, we cannot return the EngineError..
                 // let filter = sub.get_filter()?;
                 sub_socket
-                    .set_subscribe(filter)
+                    .set_subscribe(&filter)
                     .map_err(|_e| {
-                        EngineError::PluginSubscriptionError(
-                            sub.get_name().to_string(),
-                            plugin.get_id(),
-                        )
+                        EngineError::PluginSubscriptionError(sub.get_name(), plugin.get_id())
                     })
                     .unwrap();
             }
@@ -380,6 +376,7 @@ mod tests {
     use zmq::Socket;
 
     use crate::{
+        errors::EngineError,
         events::{Event, EventType},
         plugins::Plugin,
         App,
@@ -389,14 +386,14 @@ mod tests {
     // and TypeB which has a single integer field.
     struct TypeAEventType {}
     impl EventType for TypeAEventType {
-        fn get_name(&self) -> &'static str {
+        fn get_name(&self) -> String {
             let s = "TypeA";
-            s
+            s.to_string()
         }
 
-        fn get_filter(&self) -> Result<&'static [u8], crate::errors::EngineError> {
+        fn get_filter(&self) -> Result<Vec<u8>, crate::errors::EngineError> {
             // just return the bytes associated with the name.
-            Ok(self.get_name().as_bytes())
+            Ok(self.get_name().as_bytes().to_vec())
         }
     }
 
@@ -404,57 +401,48 @@ mod tests {
     struct TypeAEvent {
         message: String,
     }
-    impl TypeAEvent {
-        fn from_bytes(mut b: Vec<u8>) -> TypeAEvent {
-            // remove the first 5 bytes which are the message type
-            for _i in 1..5 {
-                b.remove(0);
-            }
-            let msg = str::from_utf8(&b).unwrap();
-            TypeAEvent {
-                message: msg.to_string(),
-            }
-        }
-    }
 
     impl Event for TypeAEvent {
         fn to_bytes(&self) -> Result<Vec<u8>, crate::errors::EngineError> {
             let type_a = TypeAEventType {};
             // The byte array begins with the filter and then adds the message
-            let result = [type_a.get_filter().unwrap(), self.message.as_bytes()].concat();
+            let result = [
+                type_a.get_filter().unwrap(),
+                self.message.as_bytes().to_vec(),
+            ]
+            .concat();
             Ok(result)
+        }
+
+        fn from_bytes(mut b: Vec<u8>) -> Result<TypeAEvent, EngineError> {
+            // remove the first 5 bytes which are the message type
+            for _i in 1..5 {
+                b.remove(0);
+            }
+            let msg = str::from_utf8(&b).unwrap();
+            Ok(TypeAEvent {
+                message: msg.to_string(),
+            })
         }
     }
 
     // The second event type, TypeB.
     struct TypeBEventType {}
     impl EventType for TypeBEventType {
-        fn get_name(&self) -> &'static str {
+        fn get_name(&self) -> String {
             let s = "TypeB";
-            s
+            s.to_string()
         }
 
-        fn get_filter(&self) -> Result<&'static [u8], crate::errors::EngineError> {
+        fn get_filter(&self) -> Result<Vec<u8>, crate::errors::EngineError> {
             // just return the bytes associated with the name.
-            Ok(self.get_name().as_bytes())
+            Ok(self.get_name().as_bytes().to_vec())
         }
     }
 
     // Event for event type TypeB
     struct TypeBEvent {
         count: usize,
-    }
-    impl TypeBEvent {
-        fn from_bytes(mut b: Vec<u8>) -> TypeBEvent {
-            // remove the first 5 bytes which are the message type
-            for _i in 0..5 {
-                b.remove(0);
-            }
-            let msg = str::from_utf8(&b).unwrap();
-            TypeBEvent {
-                count: msg.to_string().parse().unwrap(),
-            }
-        }
     }
 
     impl Event for TypeBEvent {
@@ -463,8 +451,19 @@ mod tests {
             let type_b = TypeBEventType {};
             let message = format!("{}", self.count);
             // The byte array begins with the filter and then adds the message
-            let result = [type_b.get_filter().unwrap(), message.as_bytes()].concat();
+            let result = [type_b.get_filter().unwrap(), message.as_bytes().to_vec()].concat();
             Ok(result)
+        }
+
+        fn from_bytes(mut b: Vec<u8>) -> Result<TypeBEvent, EngineError> {
+            // remove the first 5 bytes which are the message type
+            for _i in 0..5 {
+                b.remove(0);
+            }
+            let msg = str::from_utf8(&b).unwrap();
+            Ok(TypeBEvent {
+                count: msg.to_string().parse().unwrap(),
+            })
         }
     }
 
@@ -520,7 +519,7 @@ mod tests {
                 // get the bytes of a new message; it should be of TypeB
                 let b = sub_socket.recv_bytes(0).unwrap();
                 println!("MsgProducer received TypeB message; bytes: {:?}", b);
-                let event_msg = TypeBEvent::from_bytes(b);
+                let event_msg = TypeBEvent::from_bytes(b).unwrap();
                 let count = event_msg.count;
                 println!("Got a type B message; count was: {}", count);
                 total_messages_read += 1;
@@ -571,7 +570,7 @@ mod tests {
             while total_messages_read < 5 {
                 // get the bytes of a new message; it should be of TypeA
                 let b = sub_socket.recv_bytes(0).unwrap();
-                let event_msg = TypeAEvent::from_bytes(b);
+                let event_msg = TypeAEvent::from_bytes(b).unwrap();
                 let count = event_msg.message.len();
                 total_messages_read += 1;
                 println!(
@@ -598,6 +597,7 @@ mod tests {
         }
     }
 
+    // basic test that we can register plugins and execute app.run() and that the program terminates.
     #[test]
     fn test_run_app() -> Result<(), String> {
         // the plugins for our app
@@ -614,4 +614,12 @@ mod tests {
         println!("returned from test_run_app.run()");
         Ok(())
     }
+
+    // ----- event filters -----
+    // test that plugin gets the messages that it subscribed to
+
+    // test that plugin does NOT get messages it did not subscribe to
+
+    // ----- event to_bytes() and from_bytes() -----
+    // test that a message received is byte-for-byte identical to the message that was sent
 }
