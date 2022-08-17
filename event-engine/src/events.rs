@@ -8,6 +8,7 @@ use zmq::Socket;
 /// of said type.
 pub trait EventType {
     /// return the name of the event type
+    // TODO -- can we return String and Vec[u8]?
     fn get_name(&self) -> &'static str;
 
     /// compute the byte array filter for all messages of this event type.

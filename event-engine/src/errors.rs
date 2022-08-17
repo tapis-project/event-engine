@@ -41,8 +41,8 @@ pub enum EngineError {
     #[error("Engine could not create subscription socket")]
     SubSocketCreateError(#[from] zmq::Error),
 
-    #[error("Engine could not bind subscription socket to TCP port {0}")]
-    SubSocketTCPBindError(String),
+    #[error("Engine could not bind subscription socket to TCP port {0}; details: {1}")]
+    SubSocketTCPBindError(String, zmq::Error),
 
     #[error("Engine could not bind subscription socket to inproc URL {0}")]
     SubSocketInProcBindError(String),
