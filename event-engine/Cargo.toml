@@ -2,6 +2,12 @@
 name = "event-engine"
 version = "0.1.0"
 edition = "2021"
+description = "Framework for writting event-driven application utilizing a plugin architecture."
+license = "BSD 3-Clause"
+homepage = "https://github.com/tapis-project/event-engine"
+repository = "https://github.com/tapis-project/event-engine"
+readme = "https://github.com/tapis-project/event-engine/blob/main/README.md"
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
