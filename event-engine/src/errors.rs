@@ -56,6 +56,9 @@ pub enum EngineError {
     #[error("Engine failed to establish publish socket for plugin: {0}")]
     PluginPubSocketError(Uuid),
 
+    #[error("Engine failed to establish external socket for plugin: {0}; details: {1}")]
+    PluginExternalSocketError(Uuid, zmq::Error),
+
     #[error("Engine failed to establish subscription socket for plugin: {0}")]
     PluginSubSocketError(Uuid),
 
@@ -93,4 +96,17 @@ pub enum EngineError {
 
     #[error("Engine failed to send a message on the sync socket; details: {0}")]
     EngineSyncSocketSendRcvError(zmq::Error),
+
+    #[error("Engine failed to receive a message on the external socket; plugin id: {0}; details: {1}")]
+    EngineExtSocketRcvError(Uuid, zmq::Error),
+
+    #[error("Engine failed to receive a message on the sub socket for an external plugin; plugin id: {0}; details: {1}")]
+    EngineExtSubSocketRcvError(Uuid, zmq::Error),
+
+    #[error("Engine failed to send a message on the external socket for an external plugin; plugin id: {0}; details: {1}")]
+    EngineExtSocketSendError(Uuid, zmq::Error),
+
+    #[error("Engine failed to send a message on the pub socket for an external plugin; plugin id: {0}; details: {1}")]
+    EngineExtPubSocketSendError(Uuid, zmq::Error),
+
 }

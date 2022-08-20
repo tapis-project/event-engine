@@ -4,7 +4,8 @@ use std::{
 };
 
 use errors::EngineError;
-use plugins::Plugin;
+use plugins::{Plugin, ExternalPlugin};
+use uuid::Uuid;
 use zmq::{Context, Socket};
 
 pub mod errors;
@@ -38,6 +39,7 @@ impl Default for SocketData {
 
 pub struct App {
     pub plugins: Vec<Arc<Box<dyn Plugin>>>,
+    pub external_plugins: Vec<Arc<Box<dyn ExternalPlugin>>>,
     pub app_config: AppConfig,
     pub context: Context,
 }
@@ -46,6 +48,7 @@ impl Default for App {
     fn default() -> Self {
         App {
             plugins: vec![],
+            external_plugins: vec![],
             app_config: AppConfig {
                 publish_port: 5559,
                 subscribe_port: 5560,
@@ -165,7 +168,7 @@ impl App {
                     .get_filter()
                     .map_err(|_e| EngineError::EngineSetSubFilterError())
                     .unwrap();
-                println!("Engine setting subscription filter {:?}", filter);
+                println!("Engine setting subscription filter {:?} for plugin: {}", filter, plugin.get_id());
                 // TODO -- the following error handling doesn't work; compiler complains, "cannot return value referencing
                 // local data"; that is, we cannot return the EngineError..
                 // let filter = sub.get_filter()?;
@@ -239,6 +242,143 @@ impl App {
         Ok(thread_handle)
     }
 
+
+    fn start_external_plugin(
+        &self,
+        context: &zmq::Context,
+        plugin: Arc<Box<dyn ExternalPlugin>>,
+    ) -> Result<JoinHandle<()>, EngineError> {
+
+        let socket_data = SocketData::default();
+
+        // we need to clone the zmq context so that the thread can take ownership and avoid static lifetime
+        // requirements on the original context object. note also that creating a brand new context within the
+        // thread does not work -- the inproc endpoints will not be shared.
+        let context_clone = context.clone();
+        let thread_handle = thread::spawn(move || {
+            println!("external plugin {} thread started.", plugin.get_id());
+
+            // TODO -- in the blocked code that follows, we use a series of .unwrap()s to effectively crash
+            // the entire thread when we encounter an EngineError. Using the ? operator to "bubble" up the errors
+            // naturally does not work. We should explore alternatives though
+
+            // -------------------------------------------------------------------------------------------------
+
+            // Create the external socket used to communicate with the external plugin process
+            let external_socket = context_clone
+                .socket(zmq::REP)
+                .map_err(|e| EngineError::PluginExternalSocketError(plugin.get_id(), e))
+                .unwrap();
+            let external_tcp_url = format!("tcp://*:{}", plugin.get_tcp_port());    
+            
+            external_socket.bind(&external_tcp_url)
+                .map_err(|e| EngineError::PluginExternalSocketError(plugin.get_id(), e))
+                .unwrap();
+            println!("plugin bound to external TCP socket: {}", external_tcp_url);
+
+            // Create the socket that plugin will use to publish new events
+            let pub_socket = context_clone
+                .socket(zmq::PUB)
+                .map_err(|_e| EngineError::PluginPubSocketError(plugin.get_id()))
+                .unwrap();
+            pub_socket
+                .connect(&socket_data.pub_socket_inproc_url)
+                .map_err(|_e| EngineError::PluginPubSocketError(plugin.get_id()))
+                .unwrap();
+            println!("plugin {} connected to pub socket.", plugin.get_id());
+
+            // Create the socket that plugin will use to subscribe to events
+            let sub_socket = context_clone
+                .socket(zmq::SUB)
+                .map_err(|_e| EngineError::PluginSubSocketError(plugin.get_id()))
+                .unwrap();
+            sub_socket
+                .connect(&socket_data.sub_socket_inproc_url)
+                .map_err(|_e| EngineError::PluginPubSocketError(plugin.get_id()))
+                .unwrap();
+
+            // Subscribe only to events of interest for this plugin
+            for sub in plugin.get_subscriptions().unwrap() {
+                let filter = sub
+                    .get_filter()
+                    .map_err(|_e| EngineError::EngineSetSubFilterError())
+                    .unwrap();
+                println!("Engine setting subscription filter {:?}", filter);
+                // TODO -- the following error handling doesn't work; compiler complains, "cannot return value referencing
+                // local data"; that is, we cannot return the EngineError..
+                // let filter = sub.get_filter()?;
+                sub_socket
+                    .set_subscribe(&filter)
+                    .map_err(|_e| {
+                        EngineError::PluginSubscriptionError(sub.get_name(), plugin.get_id())
+                    })
+                    .unwrap();
+            }
+            println!(
+                "external plugin {} connected to sub socket with subscriptions set.",
+                plugin.get_id()
+            );
+
+            // Create the sync socket that plugin will use to sync with engine and other plugins
+            let sync = context_clone
+                .socket(zmq::REQ)
+                .map_err(|_e| {
+                    EngineError::PluginSyncSocketError(
+                        plugin.get_id(),
+                        socket_data.sync_socket_port,
+                    )
+                })
+                .unwrap();
+            // connect the sync socket to the inproc URL.
+            // the URL must be different for EACH plugin. this is because the engine receives ALL sync ready messages
+            // from all plugins before sending any replies, and the zmq REQ-REP sockets only allow one request per
+            // reply.
+            // NOTE: since this sync object is for use in the plugin (running in a thread), it will always
+            // be used via inproc (threads use inproc).. therefore, we do not connect to the TCP URL.
+            let plugin_sync_socket_inproc_url =
+                format!("{}-{}", &socket_data.sync_inproc_url, plugin.get_id());
+
+            sync.connect(&plugin_sync_socket_inproc_url)
+                .map_err(|_e| {
+                    EngineError::PluginSyncSocketError(
+                        plugin.get_id(),
+                        socket_data.sync_socket_port,
+                    )
+                })
+                .unwrap();
+            println!(
+                "plugin {} connected to sync socket at URL: {}.",
+                plugin.get_id(),
+                plugin_sync_socket_inproc_url
+            );
+
+            // connect to and send sync message on sync socket
+            let msg = "ready";
+            sync.send(msg, 0)
+                .expect("Could not send ready message on thread for plugin; crashing!");
+            println!("plugin {} sent ready message.", plugin.get_id());
+
+            // TODO -- couldn't get this error handling to work...
+            // .map_err(|_e| EngineError::PluginSyncSendError(plugin.get_id()))?;
+
+            // blocking call to wait for reply from engine
+            let _msg = sync
+                .recv_msg(0)
+                .expect("plugin got error trying to receive sync reply; crashing!");
+
+            println!(
+                "plugin {} received reply from ready message. Executing start function...",
+                plugin.get_id()
+            );
+
+            // now execute the actual plugin function
+            plugin.start(pub_socket, sub_socket, external_socket).unwrap();
+        });
+
+        Ok(thread_handle)
+
+    }
+
     /// this function synchronizes all plugins to handle plugins that might start up more slowly than others.
     /// it utilizes a set of REQ-REP zmq sockets -- one for each plugin.
     /// the basic algorithm is:
@@ -252,29 +392,22 @@ impl App {
         // set of all sync sockets engine will use
         let mut sync_sockets = Vec::<zmq::Socket>::new();
 
-        // iterate through each pluging, creating a sync socket for it using its id, and waiting
-        // for a ready message
-        for plugin in &self.plugins {
+        // iterate through each plugin, creating a sync socket for it using its id, and waiting
+        // for a ready message. all we need for this is the plugin_id, so we first build a vector of all
+        // plugin_id's, internal and external.
+        let mut plugin_ids: Vec<Uuid> = self.plugins.iter().map(|x| x.get_id()).collect();
+        let mut external_plugin_ids: Vec<Uuid> = self.external_plugins.iter().map(|x| x.get_id()).collect();
+        plugin_ids.append(&mut external_plugin_ids);
+        println!("Engine will now sync these plugins: {:?}", plugin_ids);
+
+        for plugin_id in &plugin_ids {
             let sync_socket = context
                 .socket(zmq::REP)
                 .map_err(|_e| EngineError::EngineSyncSocketCreateError())?;
 
-            // TODO --
-            // in the future, we will bind to BOTH the tcp and inproc endpoints, since plugins could be
-            // syncing on either. for now, we just bind to inproc, since we haven't worked out external
-            // plugins
-            // ----------------------------------
-            // let sync_tcp_url = format!("tcp://*:{}", socket_data.sync_socket_port);
-            // println!("Engine binding to sync TCP URL: {}", sync_tcp_url);
-
-            // sync_socket.bind(&sync_tcp_url).map_err(|e| {
-            //     EngineError::EngineSyncSocketTCPBindError(socket_data.sync_socket_port, e)
-            // })?;
-            // ----------------------------------
-
             // bind sync socket to inproc URL
             let plugin_sync_socket_inproc_url =
-                format!("{}-{}", &socket_data.sync_inproc_url, plugin.get_id());
+                format!("{}-{}", &socket_data.sync_inproc_url, plugin_id);
             println!(
                 "Engine binding to sync inproc URL: {}",
                 &plugin_sync_socket_inproc_url
@@ -290,7 +423,7 @@ impl App {
                 .map_err(EngineError::EngineSyncSocketMsgRcvError)?;
             println!(
                 "Engine received a ready message from plugin {}",
-                plugin.get_id()
+                plugin_id
             );
             sync_sockets.push(sync_socket);
         }
@@ -299,7 +432,7 @@ impl App {
 
         // send a reply to all plugins
         let mut msg_sent = 0;
-        while msg_sent < self.plugins.len() {
+        while msg_sent < plugin_ids.len() {
             let reply = "ok";
             let sync_socket = sync_sockets
                 .pop()
@@ -315,7 +448,7 @@ impl App {
         Ok(())
     }
 
-    fn start_plugins(self) -> Result<Vec<JoinHandle<()>>, EngineError> {
+    fn start_plugins(&self) -> Result<Vec<JoinHandle<()>>, EngineError> {
         // call start_plugin with the zmq context and the config for each plugin,
         // as defined in the PLUGINS constant
         let mut thread_handles = vec![];
@@ -323,19 +456,35 @@ impl App {
             let p = Arc::clone(plugin);
             thread_handles.push(self.start_plugin(&self.context, p)?);
         }
-        // once all plugins have been started, sync them with individual messages on the
-        // REQ-REP sockets
-        self.sync_plugins(&self.context)?;
+        
         Ok(thread_handles)
     }
 
+    fn start_external_plugins(&self) -> Result<Vec<JoinHandle<()>>, EngineError> {
+        // call start_plugin with the zmq context and the config for each plugin,
+        // as defined in the PLUGINS constant
+        let mut thread_handles = vec![];
+        for plugin in &self.external_plugins {
+            let p = Arc::clone(plugin);
+            thread_handles.push(self.start_external_plugin(&self.context, p)?);
+        }
+        Ok(thread_handles)
+    }
+
+    /// Add a new plugin to the app
     pub fn register_plugin(mut self, plugin: Arc<Box<dyn Plugin>>) -> Self {
         self.plugins.push(plugin);
         self
     }
 
+    /// Add a new external plugin to the app
+    pub fn register_external_plugin(mut self, plugin: Arc<Box<dyn ExternalPlugin>>) -> Self {
+        self.external_plugins.push(plugin);
+        self
+    }
+
     pub fn run(self) -> Result<(), EngineError> {
-        println!("Engine starting application with {} plugins on publish port: {} and subscribe port: {}.", self.plugins.len(), self.app_config.publish_port, self.app_config.subscribe_port);
+        println!("Engine starting application with {} plugins and {} external plugins on publish port: {} and subscribe port: {}.", self.plugins.len(), self.external_plugins.len(), self.app_config.publish_port, self.app_config.subscribe_port);
         // incoming and outgoing sockets for the engine
         let outgoing = self.get_outgoing_socket()?;
         let incoming = self.get_incoming_socket()?;
@@ -352,13 +501,30 @@ impl App {
         // start plugins in their own thread
         let plugin_thread_handles = self.start_plugins()?;
 
-        println!("All plugins started; Will now wait for plugins to exit...");
+        // start external plugins
+        // for now, we ignore these threads and do not block on them sending a quit command, but we could
+        // change this. 
+        let external_plugin_thread_handles = self.start_external_plugins()?;
+        
+        // sync all plugins (internal and external)
+        self.sync_plugins(&self.context)?;
+
+        
+        println!("All plugins started and synced; Will now wait for plugins to exit...");
 
         // join all of the plugin threads, and when they are all complete, we can kill the entire
         // program
         for h in plugin_thread_handles {
             h.join().unwrap();
         }
+
+        println!("Engine joined all interal plugin threads; will now join external plugin threads.");
+        for h in external_plugin_thread_handles {
+            h.join().unwrap();
+        }
+        // join all external plugins as well; if we don't there are still race conditions because external
+        // plugins could be slow to start and the main program could quit before they have received messages
+
         println!("Engine joined all plugin threads.. ready to shut down.");
         // all plugins have exited so let's kill the proxy thread now
         // TODO -- is there a way to shut down the proxy thread using the handle? if we just exit
