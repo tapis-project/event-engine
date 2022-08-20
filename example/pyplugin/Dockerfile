@@ -1,4 +1,4 @@
-# Image: tapis/events-enging-ex-pyplugin
+# Image: tapis/events-engine-ex-pyplugin
 FROM tapis/pyevents
 
 ADD plugin.py /plugin.py

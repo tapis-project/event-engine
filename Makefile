@@ -11,7 +11,7 @@ build-python-base-image:
 	cd $$here/pyevents; docker build -t tapis/pyevents .
 
 build-ex-python-plugin:
-	cd $$here/example/pyplugin; docker build -t tapis/events-enging-ex-pyplugin .
+	cd $$here/example/pyplugin; docker build -t tapis/events-engine-ex-pyplugin .
 
 build: build-lib build-ex-rust-app build-python-base-image build-ex-python-plugin
 	

@@ -13,6 +13,6 @@ services:
 
   pyplugin:
     container_name: pyplugin
-    image: tapis/events-enging-ex-pyplugin
+    image: tapis/events-engine-ex-pyplugin
     networks:
       - zmqevents
