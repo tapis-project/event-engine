@@ -1,0 +1,18 @@
+version: "3.0"
+
+networks:
+  zmqevents:
+    driver: bridge
+
+services:
+  engine:
+    container_name: engine
+    image: tapis/event-engine-ex-app
+    networks:
+      - zmqevents
+
+  pyplugin:
+    container_name: pyplugin
+    image: tapis/events-enging-ex-pyplugin
+    networks:
+      - zmqevents

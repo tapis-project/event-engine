@@ -1,0 +1,54 @@
+# Image: tapis/event-engine-ex-app
+
+FROM rust:1.61 as builder
+
+# install libzmq
+RUN USER=root apt-get update && apt-get install -y libzmq3-dev
+
+# bas directory where everything will live
+RUN mkdir /example
+
+# add event-engine; 
+ADD event-engine /event-engine
+
+WORKDIR /example
+
+RUN USER=root cargo new --bin rust-app
+
+WORKDIR /example/rust-app
+
+# copy manifests
+COPY example/rust-app/Cargo.lock ./Cargo.lock
+COPY example/rust-app/Cargo.toml ./Cargo.toml
+
+# build and cache only the dependencies
+# TODO -----
+# RUN cargo build --release
+RUN cargo build
+# ----------
+RUN rm src/*.rs
+
+# copy source
+COPY example/rust-app/src ./src
+
+# build for release
+# on the very first build, this doesn't exist 
+# TODO --------
+# RUN rm ./target/release/deps/rust_app*
+RUN rm ./target/debug/deps/rust_app*
+# -------------
+RUN cargo build --release
+
+# final base image
+FROM debian:buster-slim
+
+# still need to install zmq
+RUN USER=root apt-get update && apt-get install -y libzmq3-dev
+
+# copy the build artifact from the build stage
+COPY --from=builder /example/rust-app/target/release/rust-app .
+
+# set the startup command to run your binary
+CMD ["./rust-app"]
+
+
