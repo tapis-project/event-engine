@@ -1,15 +1,18 @@
+//! Plugins are independent components of the application that create and consume events. Plugins can be either
+//! internal, meaning they are written in Rust and run within the main application process as a child thread, or
+//! external, meaning they run in a separate process from the main application. Internal plugins use an inprocess
+//! communication mechanism to publish ans subscribe to events, while external plugins communicate with the main
+//! application over TCP.
+//! 
+//! The following traits provide the contracts for writing internal ans external plugins. 
 use crate::{errors::EngineError, events::EventType};
 use uuid::Uuid;
 use zmq::Socket;
 
-/// Public API for defining the "plugins" or independent components of an application.
-/// A plugin is an application component that defines its own event subscriptions and runs
-/// as a standalone thread. Both "internal" plugins and "external" plugins are supported.
-
-/// API for internal plugins; i.e., plugins written in Rust and running in the main application 
-/// process.
+/// Public API for defining the internal plugins. Internal plugns are plugins that run within the main application
+/// process in a child thread. In particular, all internal plugins must be written in Rust. 
 pub trait Plugin: Sync + Send {
-    /// the entry point for the plugin. the engine will start the plugin in its own
+    /// The entry point for the plugin. The engine will start the plugin in its own
     /// thread and execute this function.
     /// the pub_socket is used by the plugin to publish new events.
     /// the sub_socket is used by the plugin to get events published by other plugins.
@@ -24,8 +27,8 @@ pub trait Plugin: Sync + Send {
 }
 
 
-/// API for external plugins. 
-/// External plugins are plugins that will run in a separate process from the main application process.
+/// Public API for defining external plugins. External plugins are plugins that will run in a separate process from the main 
+/// application process.
 /// In particular, all plugins written in languages other than Rust will be external plugins. These external plugins 
 /// still need to be registered on the main application. 
 pub trait ExternalPlugin: Send + Sync {

@@ -1,3 +1,68 @@
+//! # Event Engine
+//! This library provides a framework for writing event-based applications that utilize a plugin architecture. 
+//! Applications built with `event-engine` are written in Rust but can utilize plugins in written in multiple languages.
+//! 
+//! Events correspond to statically typed messages that can be transmitted over a socket and are the basic 
+//! mechanism of communication between plugins of the application. Each application defines its own event types
+//! which include mechanisms for serializing and deserializing a message to/from bytes. No assumption is made
+//! about the serialization format used for events, and different event types can utilize different formats.
+//! 
+//! Plugins are independent components of an application that create and consume events. Each plugin defines
+//! the event types it is interested in, and the core `event-engine` proxies events across the plugins of an 
+//! application using a publish-subscribe pattern. Each application defines its own plugins which can either be
+//! internal or external. Internal plugins run as child threads within the main (Rust) application process and
+//! are necessarily written in Rust. External plugins run as separate OS processes and can be written in any 
+//! language. 
+//! 
+//! ## Example: 
+//!     use event_engine::App;
+//!     use event_engine::plugins::Plugin;
+//! 
+//!     // define the events for the application
+//!     struct TypeAEventType {}
+//!     impl EventType for TypeAEventType {
+//!         ...
+//!     }
+//!     struct TypeAEvent {
+//!         message: String,
+//!     }
+//!     impl Event for TypeAEvent {
+//!          ...
+//!     }
+//!     // ... additional event types ...
+//! 
+//!     // define the plugins
+//!     struct MsgProducerPlugin {
+//!         id: uuid::Uuid,
+//!     }
+//!     impl MsgProducerPlugin {
+//!         fn new() -> Self {
+//!             ...
+//!         }
+//!     }
+//!     impl Plugin for MsgProducerPlugin {
+//!         ...
+//!     }
+//!     // ... additional plugins ...
+//! 
+//!     // create the App object, register the plugins and run
+//!     fn main() {
+//!         // two Rust plugins
+//!         let msg_producer = MsgProducerPlugin::new();
+//!         let counter = CounterPlugin::new();
+//!         // an external plugin written in python
+//!         let pyplugin = PyPlugin::new();
+//!     
+//!         // main application object
+//!         let app: App = App::new(5559, 5560);
+//!         app.register_plugin(Arc::new(Box::new(msg_producer)))
+//!             .register_plugin(Arc::new(Box::new(counter)))
+//!             .register_external_plugin(Arc::new(Box::new(pyplugin)))
+//!             .run()
+//!             .unwrap();
+//!         ()
+//!     }
+
 use std::{
     sync::Arc,
     thread::{self, JoinHandle},
@@ -12,13 +77,13 @@ pub mod errors;
 pub mod events;
 pub mod plugins;
 
-// configuration for the app
+/// Configuration for the `event-engine` application.
 pub struct AppConfig {
     pub publish_port: i32,
     pub subscribe_port: i32,
 }
 
-// configuration data related to creating the sockets used by the enting
+// configuration data related to creating the sockets used by the engine.
 struct SocketData {
     pub_socket_inproc_url: String,
     sub_socket_inproc_url: String,
@@ -37,6 +102,7 @@ impl Default for SocketData {
     }
 }
 
+/// The `event-engine` application object.
 pub struct App {
     pub plugins: Vec<Arc<Box<dyn Plugin>>>,
     pub external_plugins: Vec<Arc<Box<dyn ExternalPlugin>>>,
