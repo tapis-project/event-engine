@@ -1,6 +1,6 @@
 [package]
 name = "event-engine"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Framework for writting event-driven application utilizing a plugin architecture."
 license = "BSD-3-Clause"
