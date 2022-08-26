@@ -1,75 +1,26 @@
-//! # Event Engine
-//! This library provides a framework for writing event-based applications that utilize a plugin architecture. 
-//! Applications built with `event-engine` are written in Rust but can utilize plugins in written in multiple languages.
-//! 
-//! Events correspond to statically typed messages that can be transmitted over a socket and are the basic 
-//! mechanism of communication between plugins of the application. Each application defines its own event types
-//! which include mechanisms for serializing and deserializing a message to/from bytes. No assumption is made
-//! about the serialization format used for events, and different event types can utilize different formats.
-//! 
-//! Plugins are independent components of an application that create and consume events. Each plugin defines
-//! the event types it is interested in, and the core `event-engine` proxies events across the plugins of an 
-//! application using a publish-subscribe pattern. Each application defines its own plugins which can either be
-//! internal or external. Internal plugins run as child threads within the main (Rust) application process and
-//! are necessarily written in Rust. External plugins run as separate OS processes and can be written in any 
-//! language. 
-//! 
-//! ## Example: 
-//!     use event_engine::App;
-//!     use event_engine::plugins::Plugin;
-//! 
-//!     // define the events for the application
-//!     struct TypeAEventType {}
-//!     impl EventType for TypeAEventType {
-//!         ...
-//!     }
-//!     struct TypeAEvent {
-//!         message: String,
-//!     }
-//!     impl Event for TypeAEvent {
-//!          ...
-//!     }
-//!     // ... additional event types ...
-//! 
-//!     // define the plugins
-//!     struct MsgProducerPlugin {
-//!         id: uuid::Uuid,
-//!     }
-//!     impl MsgProducerPlugin {
-//!         fn new() -> Self {
-//!             ...
-//!         }
-//!     }
-//!     impl Plugin for MsgProducerPlugin {
-//!         ...
-//!     }
-//!     // ... additional plugins ...
-//! 
-//!     // create the App object, register the plugins and run
-//!     fn main() {
-//!         // two Rust plugins
-//!         let msg_producer = MsgProducerPlugin::new();
-//!         let counter = CounterPlugin::new();
-//!         // an external plugin written in python
-//!         let pyplugin = PyPlugin::new();
-//!     
-//!         // main application object
-//!         let app: App = App::new(5559, 5560);
-//!         app.register_plugin(Arc::new(Box::new(msg_producer)))
-//!             .register_plugin(Arc::new(Box::new(counter)))
-//!             .register_external_plugin(Arc::new(Box::new(pyplugin)))
-//!             .run()
-//!             .unwrap();
-//!         ()
-//!     }
-
+/// # Event Engine
+/// This library provides a framework for writing event-based applications that utilize a plugin architecture.
+/// Applications built with `event-engine` are written in Rust but can utilize plugins in written in multiple languages.
+///
+/// Events correspond to statically typed messages that can be transmitted over a socket and are the basic
+/// mechanism of communication between plugins of the application. Each application defines its own event types
+/// which include mechanisms for serializing and deserializing a message to/from bytes. No assumption is made
+/// about the serialization format used for events, and different event types can utilize different formats.
+///
+/// Plugins are independent components of an application that create and consume events. Each plugin defines
+/// the event types it is interested in, and the core `event-engine` proxies events across the plugins of an
+/// application using a publish-subscribe pattern. Each application defines its own plugins which can either be
+/// internal or external. Internal plugins run as child threads within the main (Rust) application process and
+/// are necessarily written in Rust. External plugins run as separate OS processes and can be written in any
+/// language.
+///
 use std::{
     sync::Arc,
     thread::{self, JoinHandle},
 };
 
 use errors::EngineError;
-use plugins::{Plugin, ExternalPlugin};
+use plugins::{ExternalPlugin, Plugin};
 use uuid::Uuid;
 use zmq::{Context, Socket};
 
@@ -234,7 +185,11 @@ impl App {
                     .get_filter()
                     .map_err(|_e| EngineError::EngineSetSubFilterError())
                     .unwrap();
-                println!("Engine setting subscription filter {:?} for plugin: {}", filter, plugin.get_id());
+                println!(
+                    "Engine setting subscription filter {:?} for plugin: {}",
+                    filter,
+                    plugin.get_id()
+                );
                 // TODO -- the following error handling doesn't work; compiler complains, "cannot return value referencing
                 // local data"; that is, we cannot return the EngineError..
                 // let filter = sub.get_filter()?;
@@ -308,13 +263,11 @@ impl App {
         Ok(thread_handle)
     }
 
-
     fn start_external_plugin(
         &self,
         context: &zmq::Context,
         plugin: Arc<Box<dyn ExternalPlugin>>,
     ) -> Result<JoinHandle<()>, EngineError> {
-
         let socket_data = SocketData::default();
 
         // we need to clone the zmq context so that the thread can take ownership and avoid static lifetime
@@ -335,9 +288,10 @@ impl App {
                 .socket(zmq::REP)
                 .map_err(|e| EngineError::PluginExternalSocketError(plugin.get_id(), e))
                 .unwrap();
-            let external_tcp_url = format!("tcp://*:{}", plugin.get_tcp_port());    
-            
-            external_socket.bind(&external_tcp_url)
+            let external_tcp_url = format!("tcp://*:{}", plugin.get_tcp_port());
+
+            external_socket
+                .bind(&external_tcp_url)
                 .map_err(|e| EngineError::PluginExternalSocketError(plugin.get_id(), e))
                 .unwrap();
             println!("plugin bound to external TCP socket: {}", external_tcp_url);
@@ -438,11 +392,12 @@ impl App {
             );
 
             // now execute the actual plugin function
-            plugin.start(pub_socket, sub_socket, external_socket).unwrap();
+            plugin
+                .start(pub_socket, sub_socket, external_socket)
+                .unwrap();
         });
 
         Ok(thread_handle)
-
     }
 
     /// this function synchronizes all plugins to handle plugins that might start up more slowly than others.
@@ -462,7 +417,8 @@ impl App {
         // for a ready message. all we need for this is the plugin_id, so we first build a vector of all
         // plugin_id's, internal and external.
         let mut plugin_ids: Vec<Uuid> = self.plugins.iter().map(|x| x.get_id()).collect();
-        let mut external_plugin_ids: Vec<Uuid> = self.external_plugins.iter().map(|x| x.get_id()).collect();
+        let mut external_plugin_ids: Vec<Uuid> =
+            self.external_plugins.iter().map(|x| x.get_id()).collect();
         plugin_ids.append(&mut external_plugin_ids);
         println!("Engine will now sync these plugins: {:?}", plugin_ids);
 
@@ -487,10 +443,7 @@ impl App {
             let _msg = sync_socket
                 .recv_msg(0)
                 .map_err(EngineError::EngineSyncSocketMsgRcvError)?;
-            println!(
-                "Engine received a ready message from plugin {}",
-                plugin_id
-            );
+            println!("Engine received a ready message from plugin {}", plugin_id);
             sync_sockets.push(sync_socket);
         }
 
@@ -522,7 +475,7 @@ impl App {
             let p = Arc::clone(plugin);
             thread_handles.push(self.start_plugin(&self.context, p)?);
         }
-        
+
         Ok(thread_handles)
     }
 
@@ -569,13 +522,12 @@ impl App {
 
         // start external plugins
         // for now, we ignore these threads and do not block on them sending a quit command, but we could
-        // change this. 
+        // change this.
         let external_plugin_thread_handles = self.start_external_plugins()?;
-        
+
         // sync all plugins (internal and external)
         self.sync_plugins(&self.context)?;
 
-        
         println!("All plugins started and synced; Will now wait for plugins to exit...");
 
         // join all of the plugin threads, and when they are all complete, we can kill the entire
@@ -584,7 +536,9 @@ impl App {
             h.join().unwrap();
         }
 
-        println!("Engine joined all interal plugin threads; will now join external plugin threads.");
+        println!(
+            "Engine joined all interal plugin threads; will now join external plugin threads."
+        );
         for h in external_plugin_thread_handles {
             h.join().unwrap();
         }

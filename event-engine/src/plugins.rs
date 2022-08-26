@@ -3,14 +3,14 @@
 //! external, meaning they run in a separate process from the main application. Internal plugins use an inprocess
 //! communication mechanism to publish ans subscribe to events, while external plugins communicate with the main
 //! application over TCP.
-//! 
-//! The following traits provide the contracts for writing internal ans external plugins. 
+//!
+//! The following traits provide the contracts for writing internal ans external plugins.
 use crate::{errors::EngineError, events::EventType};
 use uuid::Uuid;
 use zmq::Socket;
 
 /// Public API for defining the internal plugins. Internal plugns are plugins that run within the main application
-/// process in a child thread. In particular, all internal plugins must be written in Rust. 
+/// process in a child thread. In particular, all internal plugins must be written in Rust.
 pub trait Plugin: Sync + Send {
     /// The entry point for the plugin. The engine will start the plugin in its own
     /// thread and execute this function.
@@ -26,24 +26,28 @@ pub trait Plugin: Sync + Send {
     fn get_id(&self) -> Uuid;
 }
 
-
-/// Public API for defining external plugins. External plugins are plugins that will run in a separate process from the main 
+/// Public API for defining external plugins. External plugins are plugins that will run in a separate process from the main
 /// application process.
-/// In particular, all plugins written in languages other than Rust will be external plugins. These external plugins 
-/// still need to be registered on the main application. 
+/// In particular, all plugins written in languages other than Rust will be external plugins. These external plugins
+/// still need to be registered on the main application.
 pub trait ExternalPlugin: Send + Sync {
-
     /// A Rust start function for external plugins. This function provides an API for the external plugin process
     /// to retrieve events and publish new events. It also supports commands, such as "quit" which will allow it
     /// to shut down.
     /// This API is exposed on a zmq REP socket.
-    fn start(&self, pub_socket: Socket, sub_socket: Socket, external_socket: Socket) -> Result<(), EngineError> {
+    fn start(
+        &self,
+        pub_socket: Socket,
+        sub_socket: Socket,
+        external_socket: Socket,
+    ) -> Result<(), EngineError> {
         let plugin_id = self.get_id();
         println!("{}: top of start function for external plugin", plugin_id);
         loop {
             println!("{}: waiting for next message", plugin_id);
             // get the next message
-            let msg = external_socket.recv_bytes(0)
+            let msg = external_socket
+                .recv_bytes(0)
                 .map_err(|e| EngineError::EngineExtSocketRcvError(plugin_id, e))?;
             println!("{}: got message from external plugin", plugin_id);
 
@@ -55,22 +59,31 @@ pub trait ExternalPlugin: Send + Sync {
                         // don't let a bad command crash everything, just log the error and continue
                         println!("{}: Got unexpected message from plugin: could not encode to utf8; error: {} message bytes: {:?}", plugin_id, e, msg);
                         // always need to reply
-                        external_socket.send("event-engine: bad msg", 0)
+                        external_socket
+                            .send("event-engine: bad msg", 0)
                             .map_err(|e| EngineError::EngineExtSocketSendError(plugin_id, e))?;
                         continue;
                     }
                 };
-                if msg == "plugin_command: quit".to_string() {
+                if msg == "plugin_command: quit" {
                     println!("{}: got quit message; exiting", plugin_id);
                     break;
                 }
-                if msg == "plugin_command: next_msg".to_string() {
-                    println!("{}: got next_msg command, retrieving next message", plugin_id);
+                if msg == "plugin_command: next_msg" {
+                    println!(
+                        "{}: got next_msg command, retrieving next message",
+                        plugin_id
+                    );
                     // get the next message and reply with it over the external socket
-                    let next_msg = sub_socket.recv_bytes(0)
+                    let next_msg = sub_socket
+                        .recv_bytes(0)
                         .map_err(|e| EngineError::EngineExtSubSocketRcvError(plugin_id, e))?;
-                    println!("{}: got next message, sengding over external socket", plugin_id);
-                    external_socket.send(next_msg, 0)
+                    println!(
+                        "{}: got next message, sengding over external socket",
+                        plugin_id
+                    );
+                    external_socket
+                        .send(next_msg, 0)
                         .map_err(|e| EngineError::EngineExtSocketSendError(plugin_id, e))?;
                     println!("{}: external message sent, loop complete", plugin_id);
                     continue;
@@ -78,11 +91,12 @@ pub trait ExternalPlugin: Send + Sync {
             }
             // if we are here, we have not processed the message, so we assume it is a new event.
             // we publish it on the pub socket and then reply
-            pub_socket.send(msg, 0)
+            pub_socket
+                .send(msg, 0)
                 .map_err(|e| EngineError::EngineExtPubSocketSendError(plugin_id, e))?;
-            external_socket.send("event-engine: msg published", 0)
+            external_socket
+                .send("event-engine: msg published", 0)
                 .map_err(|e| EngineError::EngineExtSocketSendError(plugin_id, e))?;
-
         }
 
         Ok(())
@@ -97,5 +111,4 @@ pub trait ExternalPlugin: Send + Sync {
 
     /// Returns the unique id for this plugin
     fn get_id(&self) -> Uuid;
-
 }

@@ -1,5 +1,5 @@
-//! Events provide the mechansim by which plugins communicate with each other. Events correspond to 
-//! statically typed messages defined by the application. 
+//! Events provide the mechansim by which plugins communicate with each other. Events correspond to
+//! statically typed messages defined by the application.
 use crate::errors::EngineError;
 use zmq::Socket;
 
