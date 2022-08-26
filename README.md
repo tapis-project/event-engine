@@ -34,6 +34,9 @@ events. The `plugins.rs` module includes the `Plugin` and `ExternalPlugin` trait
 3. Create an `event_engine::App` object and configure it with the plugins for the application.
 
 ```
+     use event_engine::App;
+     // define events and plugins
+     
      // create the App object, register the plugins and run
      fn main() {
          // two Rust plugins
