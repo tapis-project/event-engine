@@ -2,6 +2,7 @@
 //! statically typed messages defined by the application.
 use crate::errors::EngineError;
 use zmq::Socket;
+use std::error::Error;
 
 /// An event type in the application. Event types have a name, which be used to
 /// specify subscriptions by components (plugins) in applications.
@@ -25,7 +26,7 @@ pub trait Event {
     /// convert the event to a raw byte array
     fn to_bytes(&self) -> Result<Vec<u8>, EngineError>;
 
-    fn from_bytes(bytes: Vec<u8>) -> Result<Self, EngineError>
+    fn from_bytes(bytes: Vec<u8>) -> Result<Self, Box<dyn Error>>
     where
         Self: Sized;
 
