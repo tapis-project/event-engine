@@ -15,8 +15,11 @@ pub trait EventType {
     fn get_name(&self) -> String;
 
     /// compute the byte array filter for all messages of this event type.
-    /// The filter must uniquely determine this event type.
-    fn get_filter(&self) -> Result<Vec<u8>, EngineError>;
+    /// The filter must uniquely determine this event type.  The default
+    /// implementation just returns the event name as bytes.
+    fn get_filter(&self) -> Result<Vec<u8>, EngineError> {
+        Ok(self.get_name().as_bytes().to_vec())
+    }
 }
 
 /// Public API for defining events in an application.
