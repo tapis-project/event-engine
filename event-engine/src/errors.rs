@@ -78,4 +78,7 @@ pub enum EngineError {
 
     #[error("Engine failed to send a message on the pub socket for an external plugin; plugin id: {0}; details: {1}")]
     EngineExtPubSocketSendError(Uuid, zmq::Error),
+
+    #[error("Plugin {0} ({1}) aborting, details: {2}")]
+    PluginExecutionError(String, String, String),
 }
