@@ -2,7 +2,7 @@
 name = "event-engine"
 version = "0.1.1"
 edition = "2021"
-description = "Framework for writting event-driven application utilizing a plugin architecture."
+description = "Framework for writing event-driven application utilizing a plugin architecture."
 license = "BSD-3-Clause"
 homepage = "https://github.com/tapis-project/event-engine"
 repository = "https://github.com/tapis-project/event-engine"
@@ -13,6 +13,6 @@ readme = "../README.md"
 
 [dependencies]
 zmq = "0.9"
-uuid = { version = "0.8", features = ["v4"] }
+uuid = { version = "1.1", features = ["v4"] }
 rand = "0.8.5"
 thiserror = "1.0"

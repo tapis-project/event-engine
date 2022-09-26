@@ -521,8 +521,6 @@ impl App {
         let plugin_thread_handles = self.start_plugins()?;
 
         // start external plugins
-        // for now, we ignore these threads and do not block on them sending a quit command, but we could
-        // change this.
         let external_plugin_thread_handles = self.start_external_plugins()?;
 
         // sync all plugins (internal and external)
@@ -537,7 +535,7 @@ impl App {
         }
 
         println!(
-            "Engine joined all interal plugin threads; will now join external plugin threads."
+            "Engine joined all internal plugin threads; will now join external plugin threads."
         );
         for h in external_plugin_thread_handles {
             h.join().unwrap();
@@ -562,7 +560,6 @@ mod tests {
     use zmq::Socket;
 
     use crate::{
-        errors::EngineError,
         events::{Event, EventType},
         plugins::Plugin,
         App,
@@ -600,7 +597,7 @@ mod tests {
             Ok(result)
         }
 
-        fn from_bytes(mut b: Vec<u8>) -> Result<TypeAEvent, EngineError> {
+        fn from_bytes(mut b: Vec<u8>) -> Result<TypeAEvent, Box<(dyn std::error::Error + 'static)>> {
             // remove the first 5 bytes which are the message type
             for _i in 1..5 {
                 b.remove(0);
@@ -641,7 +638,7 @@ mod tests {
             Ok(result)
         }
 
-        fn from_bytes(mut b: Vec<u8>) -> Result<TypeBEvent, EngineError> {
+        fn from_bytes(mut b: Vec<u8>) -> Result<TypeBEvent, Box<(dyn std::error::Error + 'static)>> {
             // remove the first 5 bytes which are the message type
             for _i in 0..5 {
                 b.remove(0);

@@ -38,7 +38,7 @@ impl Event for TypeAEvent {
         Ok(result)
     }
 
-    fn from_bytes(mut b: Vec<u8>) -> Result<TypeAEvent, EngineError> {
+    fn from_bytes(mut b: Vec<u8>) -> Result<TypeAEvent, Box<(dyn std::error::Error + 'static)>> {
         // remove the first 5 bytes which are the message type
         for _i in 0..5 {
             b.remove(0);
@@ -79,7 +79,7 @@ impl Event for TypeBEvent {
         Ok(result)
     }
 
-    fn from_bytes(mut b: Vec<u8>) -> Result<TypeBEvent, EngineError> {
+    fn from_bytes(mut b: Vec<u8>) -> Result<TypeBEvent, Box<(dyn std::error::Error + 'static)>> {
         // remove the first 5 bytes which are the message type
         for _i in 0..5 {
             b.remove(0);
@@ -120,7 +120,7 @@ impl Event for TypeCEvent {
         Ok(result)
     }
 
-    fn from_bytes(mut b: Vec<u8>) -> Result<TypeCEvent, EngineError> {
+    fn from_bytes(mut b: Vec<u8>) -> Result<TypeCEvent, Box<(dyn std::error::Error + 'static)>> {
         // remove the first 5 bytes which are the message type
         for _i in 0..5 {
             b.remove(0);

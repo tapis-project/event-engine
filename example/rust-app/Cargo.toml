@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 zmq = "0.9"
 event-engine = { path = "../../event-engine"}
-uuid = { version = "0.8", features = ["v4"] }
+uuid = { version = "1.1", features = ["v4"] }
