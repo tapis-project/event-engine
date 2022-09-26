@@ -15,9 +15,5 @@ build-ex-python-plugin:
 
 build: build-lib build-ex-rust-app build-python-base-image build-ex-python-plugin
 	
-
-run: build
-	docker run -it --rm tapis/event-engine-ex-app
-
 up: build
 	cd $$here/example; docker-compose up 
