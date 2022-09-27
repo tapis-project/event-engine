@@ -496,10 +496,24 @@ impl App {
         self
     }
 
+    /// Add zero or more new plugins to the app (non-chainable)
+    pub fn register_plugins(&mut self, plugins: Vec<Arc<Box<dyn Plugin>>>){
+        for plugin in plugins {
+            self.plugins.push(plugin);
+        }
+    }
+
     /// Add a new external plugin to the app
     pub fn register_external_plugin(mut self, plugin: Arc<Box<dyn ExternalPlugin>>) -> Self {
         self.external_plugins.push(plugin);
         self
+    }
+
+    /// Add zero or more new external plugins to the app (non-chainable)
+    pub fn register_external_plugins(&mut self, plugins: Vec<Arc<Box<dyn ExternalPlugin>>>) {
+        for plugin in plugins {
+            self.external_plugins.push(plugin);
+        }
     }
 
     pub fn run(self) -> Result<(), EngineError> {
