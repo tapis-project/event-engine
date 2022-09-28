@@ -158,10 +158,6 @@ impl Plugin for MsgProducerPlugin {
             "MsgProducer (plugin id {}) start function starting...",
             self.get_id()
         );
-        println!(
-            "MsgProducer (plugin id {}) finished 1 second sleep",
-            self.get_id()
-        );
 
         // send 5 messages
         let mut total_messages_sent = 0;
