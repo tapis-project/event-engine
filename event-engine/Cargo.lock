@@ -22,7 +22,7 @@ checksum = "d9435d864e017c3c6afeac1654189b06cdb491cf2ff73dbf0d73b0f292f42ff8"
 
 [[package]]
 name = "event-engine"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rand",
  "thiserror",
