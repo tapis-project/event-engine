@@ -21,6 +21,9 @@ pub enum EngineError {
     #[error("Engine could not bind publish socket to inproc URL {0}")]
     PubSocketInProcBindError(String),
 
+    #[error("Plugin {0} ({1}) aborting, details: {2}")]
+    PluginExecutionError(String, String, String),
+
     #[error("Engine failed to establish publish socket for plugin: {0}")]
     PluginPubSocketError(Uuid),
 
