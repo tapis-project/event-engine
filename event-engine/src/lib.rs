@@ -20,6 +20,7 @@ use std::{
 };
 
 use errors::EngineError;
+use log::{error, info};
 use plugins::{ExternalPlugin, Plugin};
 use uuid::Uuid;
 use zmq::{Context, Socket};
