@@ -1,10 +1,16 @@
 use std::{str, sync::Arc};
+use log::{debug, info};
 use uuid::{self, Uuid};
+use log4rs;
 use zmq::Socket;
 use event_engine::App;
 use event_engine::plugins::{Plugin, ExternalPlugin};
 use event_engine::events::{Event, EventType};
 use event_engine::errors::EngineError;
+
+
+// log4rs configuration file 
+const LOG4RS_CONFIG_FILE  : &str = "log4rs.yml";
 
 // Here we provide two simple, example event types. TypeA, which has a single string field,
 // and TypeB which has a single integer field.
@@ -149,12 +155,16 @@ impl MsgProducerPlugin {
     }
 }
 impl Plugin for MsgProducerPlugin {
+    fn get_name(&self) -> String {
+        "MsgProducerPlugin".to_string()
+    }
+
     fn start(
         &self,
         pub_socket: Socket,
         sub_socket: Socket,
     ) -> Result<(), EngineError> {
-        println!(
+        info!(
             "MsgProducer (plugin id {}) start function starting...",
             self.get_id()
         );
@@ -165,15 +175,15 @@ impl Plugin for MsgProducerPlugin {
             let message = format!("This is message {}", total_messages_sent);
             let m = TypeAEvent { message };
             let data = m.to_bytes().unwrap();
-            println!("MsgProducer sending bytes: {:?}", data);
+            debug!("MsgProducer sending bytes: {:?}", data);
             pub_socket.send(data, 0).unwrap();
             total_messages_sent += 1;
-            println!(
+            debug!(
                 "MsgProducer sent TypeA event message: {}",
                 total_messages_sent
             );
         }
-        println!(
+        info!(
             "MsgProducer has sent all TypeA event messages, now waiting to receive TypeB events"
         );
 
@@ -182,25 +192,25 @@ impl Plugin for MsgProducerPlugin {
         while total_messages_read < 5 {
             // get the bytes of a new message; it should be of TypeB
             let b = sub_socket.recv_bytes(0).unwrap();
-            println!("MsgProducer received TypeB message; bytes: {:?}", b);
+            debug!("MsgProducer received TypeB message; bytes: {:?}", b);
             let event_msg = TypeBEvent::from_bytes(b).unwrap();
             let count = event_msg.count;
-            println!("Got a type B message; count was: {}", count);
+            debug!("Got a type B message; count was: {}", count);
             total_messages_read += 1;
-            println!(
+            debug!(
                 "MsgProducer received TypeB event message: {}",
                 total_messages_read
             );
         }
-        println!("MsgProducer has received all TypeB event messages");
+        debug!("MsgProducer has received all TypeB event messages");
 
         // finally, wait for the TypeC event from the python plugin
         let b = sub_socket.recv_bytes(0).unwrap();
-        println!("MsgProducer received last message; bytes: {:?}", b);
+        debug!("MsgProducer received last message; bytes: {:?}", b);
         let event_msg = TypeCEvent::from_bytes(b).unwrap();
-        println!("MsgProduce got message: {}", event_msg.message);
+        debug!("MsgProduce got message: {}", event_msg.message);
         
-        println!("MsgProducer has now received all events; exting...");
+        info!("MsgProducer has now received all events; exiting...");
 
         Ok(())
     }
@@ -228,12 +238,16 @@ impl CounterPlugin {
     }
 }
 impl Plugin for CounterPlugin {
+    fn get_name(&self) -> String {
+        "CounterPlugin".to_string()
+    }
+
     fn start(
         &self,
         pub_socket: Socket,
         sub_socket: Socket,
     ) -> Result<(), EngineError> {
-        println!(
+        info!(
             "Counter (plugin id {}) start function starting...",
             self.get_id()
         );
@@ -245,7 +259,7 @@ impl Plugin for CounterPlugin {
             let event_msg = TypeAEvent::from_bytes(b).unwrap();
             let count = event_msg.message.len();
             total_messages_read += 1;
-            println!(
+            debug!(
                 "Counter plugin received TypeA message: {}",
                 total_messages_read
             );
@@ -253,9 +267,9 @@ impl Plugin for CounterPlugin {
             let m = TypeBEvent { count };
             let data = m.to_bytes().unwrap();
             pub_socket.send(data, 0).unwrap();
-            println!("Counter plugin sent TypeB message: {}", total_messages_read);
+            debug!("Counter plugin sent TypeB message: {}", total_messages_read);
         }
-        println!("Counter plugin has sent all TypeB messages; now exiting.");
+        info!("Counter plugin has sent all TypeB messages; now exiting.");
 
         Ok(())
     }
@@ -282,6 +296,10 @@ impl PyPlugin{
 }
 
 impl ExternalPlugin for PyPlugin {
+    fn get_name(&self) -> String {
+        "PyPlugin".to_string()
+    }
+
     fn get_tcp_port(&self) -> i32 {
         6000
     }
@@ -296,12 +314,15 @@ impl ExternalPlugin for PyPlugin {
 }
 
 fn main() {
+    // configure logging
+    log4rs::init_file(LOG4RS_CONFIG_FILE, Default::default()).expect("Could not configure logger, quitting!");
+    
     // the plugins for our app
-    println!("inside the test_run_app");
+    info!("test_run_app starting");
     let msg_producer = MsgProducerPlugin::new();
     let counter = CounterPlugin::new();
     let pyplugin = PyPlugin::new();
-    println!("plugins for test_run_app configured");
+    info!("plugins for test_run_app configured");
     let app: App = App::new(5559, 5560);
     app.register_plugin(Arc::new(Box::new(msg_producer)))
         .register_plugin(Arc::new(Box::new(counter)))
@@ -309,6 +330,6 @@ fn main() {
         .run()
         .map_err(|e| format!("Got error from Engine! Details: {}", e))
         .unwrap();
-    println!("returned from test_run_app.run()");
+    info!("returned from test_run_app.run()");
     ()
 }

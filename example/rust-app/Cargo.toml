@@ -9,3 +9,5 @@ edition = "2021"
 zmq = "0.9"
 event-engine = { path = "../../event-engine"}
 uuid = { version = "1.1", features = ["v4"] }
+log = "0.4"
+log4rs = "1.1"

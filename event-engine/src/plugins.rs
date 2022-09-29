@@ -6,6 +6,7 @@
 //!
 //! The following traits provide the contracts for writing internal ans external plugins.
 use crate::{errors::EngineError, events::EventType};
+use log::{debug, info, error};
 use uuid::Uuid;
 use zmq::Socket;
 
@@ -24,6 +25,9 @@ pub trait Plugin: Sync + Send {
 
     /// Returns the unique id for this plugin
     fn get_id(&self) -> Uuid;
+
+    /// Returns the name for the plugin
+    fn get_name(&self) -> String;
 }
 
 /// Public API for defining external plugins. External plugins are plugins that will run in a separate process from the main
@@ -42,14 +46,14 @@ pub trait ExternalPlugin: Send + Sync {
         external_socket: Socket,
     ) -> Result<(), EngineError> {
         let plugin_id = self.get_id();
-        println!("{}: top of start function for external plugin", plugin_id);
+        debug!("{}: top of start function for external plugin", plugin_id);
         loop {
-            println!("{}: waiting for next message", plugin_id);
+            debug!("{}: waiting for next message", plugin_id);
             // get the next message
             let msg = external_socket
                 .recv_bytes(0)
                 .map_err(|e| EngineError::EngineExtSocketRcvError(plugin_id, e))?;
-            println!("{}: got message from external plugin", plugin_id);
+            debug!("{}: got message from external plugin", plugin_id);
 
             if msg.is_ascii() {
                 let msg_str_result = std::str::from_utf8(&msg);
@@ -57,7 +61,7 @@ pub trait ExternalPlugin: Send + Sync {
                     Ok(m) => m,
                     Err(e) => {
                         // don't let a bad command crash everything, just log the error and continue
-                        println!("{}: Got unexpected message from plugin: could not encode to utf8; error: {} message bytes: {:?}", plugin_id, e, msg);
+                        error!("{}: Got unexpected message from plugin: could not encode to utf8; error: {} message bytes: {:?}", plugin_id, e, msg);
                         // always need to reply
                         external_socket
                             .send("event-engine: bad msg", 0)
@@ -66,11 +70,11 @@ pub trait ExternalPlugin: Send + Sync {
                     }
                 };
                 if msg == "plugin_command: quit" {
-                    println!("{}: got quit message; exiting", plugin_id);
+                    info!("{}: got quit message; exiting", plugin_id);
                     break;
                 }
                 if msg == "plugin_command: next_msg" {
-                    println!(
+                    debug!(
                         "{}: got next_msg command, retrieving next message",
                         plugin_id
                     );
@@ -78,14 +82,14 @@ pub trait ExternalPlugin: Send + Sync {
                     let next_msg = sub_socket
                         .recv_bytes(0)
                         .map_err(|e| EngineError::EngineExtSubSocketRcvError(plugin_id, e))?;
-                    println!(
+                    debug!(
                         "{}: got next message, sengding over external socket",
                         plugin_id
                     );
                     external_socket
                         .send(next_msg, 0)
                         .map_err(|e| EngineError::EngineExtSocketSendError(plugin_id, e))?;
-                    println!("{}: external message sent, loop complete", plugin_id);
+                    debug!("{}: external message sent, loop complete", plugin_id);
                     continue;
                 }
             }
@@ -111,4 +115,8 @@ pub trait ExternalPlugin: Send + Sync {
 
     /// Returns the unique id for this plugin
     fn get_id(&self) -> Uuid;
+
+    /// Returns the name for the plugin
+    fn get_name(&self) -> String;
+
 }

@@ -47,7 +47,7 @@ RUN USER=root apt-get update && apt-get install -y libzmq3-dev
 
 # copy the build artifact from the build stage
 COPY --from=builder /example/rust-app/target/release/rust-app .
-
+COPY example/rust-app/log4rs.yml ./log4rs.yml
 # set the startup command to run your binary
 CMD ["./rust-app"]
 

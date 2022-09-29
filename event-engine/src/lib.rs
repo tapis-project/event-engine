@@ -20,7 +20,7 @@ use std::{
 };
 
 use errors::EngineError;
-// use log::{error, info};
+use log::{info, debug};
 use plugins::{ExternalPlugin, Plugin};
 use uuid::Uuid;
 use zmq::{Context, Socket};
@@ -150,8 +150,11 @@ impl App {
         // requirements on the original context object. note also that creating a brand new context within the
         // thread does not work -- the inproc endpoints will not be shared.
         let context_clone = context.clone();
-        let thread_handle = thread::spawn(move || {
-            println!("plugin {} thread started.", plugin.get_id());
+        let plugin_name = plugin.get_name();
+        let plugin_id = plugin.get_id();
+        let builder = thread::Builder::new().name(plugin.get_name());
+        let thread_handle = builder.spawn(move || {
+            debug!("plugin ({}, {}) thread started.", plugin.get_name(), plugin.get_id());
 
             // TODO -- in the blocked code that follows, we use a series of .unwrap()s to effectively crash
             // the entire thread when we encounter an EngineError. Using the ? operator to "bubble" up the errors
@@ -168,7 +171,7 @@ impl App {
                 .connect(&socket_data.pub_socket_inproc_url)
                 .map_err(|_e| EngineError::PluginPubSocketError(plugin.get_id()))
                 .unwrap();
-            println!("plugin {} connected to pub socket.", plugin.get_id());
+            debug!("plugin {} connected to pub socket.", plugin.get_id());
 
             // Create the socket that plugin will use to subscribe to events
             let sub_socket = context_clone
@@ -186,7 +189,7 @@ impl App {
                     .get_filter()
                     .map_err(|_e| EngineError::EngineSetSubFilterError())
                     .unwrap();
-                println!(
+                debug!(
                     "Engine setting subscription filter {:?} for plugin: {}",
                     filter,
                     plugin.get_id()
@@ -201,7 +204,7 @@ impl App {
                     })
                     .unwrap();
             }
-            println!(
+            debug!(
                 "plugin {} connected to sub socket with subscriptions set.",
                 plugin.get_id()
             );
@@ -233,7 +236,7 @@ impl App {
                     )
                 })
                 .unwrap();
-            println!(
+            debug!(
                 "plugin {} connected to sync socket at URL: {}.",
                 plugin.get_id(),
                 plugin_sync_socket_inproc_url
@@ -243,7 +246,7 @@ impl App {
             let msg = "ready";
             sync.send(msg, 0)
                 .expect("Could not send ready message on thread for plugin; crashing!");
-            println!("plugin {} sent ready message.", plugin.get_id());
+            debug!("plugin {} sent ready message.", plugin.get_id());
 
             // TODO -- couldn't get this error handling to work...
             // .map_err(|_e| EngineError::PluginSyncSendError(plugin.get_id()))?;
@@ -253,14 +256,14 @@ impl App {
                 .recv_msg(0)
                 .expect("plugin got error trying to receive sync reply; crashing!");
 
-            println!(
+            debug!(
                 "plugin {} received reply from ready message. Executing start function...",
                 plugin.get_id()
             );
 
             // now execute the actual plugin function
             plugin.start(pub_socket, sub_socket).unwrap();
-        });
+        }).expect(&format!("Could not spawn new thread for plugin ({},{})", plugin_name, plugin_id));
         Ok(thread_handle)
     }
 
@@ -275,8 +278,11 @@ impl App {
         // requirements on the original context object. note also that creating a brand new context within the
         // thread does not work -- the inproc endpoints will not be shared.
         let context_clone = context.clone();
-        let thread_handle = thread::spawn(move || {
-            println!("external plugin {} thread started.", plugin.get_id());
+        let plugin_name = plugin.get_name();
+        let plugin_id = plugin.get_id();
+        let builder = thread::Builder::new().name(plugin.get_name());
+        let thread_handle = builder.spawn(move || {
+            debug!("external plugin ({}, {}) thread started.", plugin.get_name(), plugin.get_id());
 
             // TODO -- in the blocked code that follows, we use a series of .unwrap()s to effectively crash
             // the entire thread when we encounter an EngineError. Using the ? operator to "bubble" up the errors
@@ -295,7 +301,7 @@ impl App {
                 .bind(&external_tcp_url)
                 .map_err(|e| EngineError::PluginExternalSocketError(plugin.get_id(), e))
                 .unwrap();
-            println!("plugin bound to external TCP socket: {}", external_tcp_url);
+            debug!("plugin bound to external TCP socket: {}", external_tcp_url);
 
             // Create the socket that plugin will use to publish new events
             let pub_socket = context_clone
@@ -306,7 +312,7 @@ impl App {
                 .connect(&socket_data.pub_socket_inproc_url)
                 .map_err(|_e| EngineError::PluginPubSocketError(plugin.get_id()))
                 .unwrap();
-            println!("plugin {} connected to pub socket.", plugin.get_id());
+            debug!("plugin {} connected to pub socket.", plugin.get_id());
 
             // Create the socket that plugin will use to subscribe to events
             let sub_socket = context_clone
@@ -324,7 +330,7 @@ impl App {
                     .get_filter()
                     .map_err(|_e| EngineError::EngineSetSubFilterError())
                     .unwrap();
-                println!("Engine setting subscription filter {:?}", filter);
+                debug!("Engine setting subscription filter {:?}", filter);
                 // TODO -- the following error handling doesn't work; compiler complains, "cannot return value referencing
                 // local data"; that is, we cannot return the EngineError..
                 // let filter = sub.get_filter()?;
@@ -335,7 +341,7 @@ impl App {
                     })
                     .unwrap();
             }
-            println!(
+            debug!(
                 "external plugin {} connected to sub socket with subscriptions set.",
                 plugin.get_id()
             );
@@ -367,7 +373,7 @@ impl App {
                     )
                 })
                 .unwrap();
-            println!(
+            debug!(
                 "plugin {} connected to sync socket at URL: {}.",
                 plugin.get_id(),
                 plugin_sync_socket_inproc_url
@@ -377,7 +383,7 @@ impl App {
             let msg = "ready";
             sync.send(msg, 0)
                 .expect("Could not send ready message on thread for plugin; crashing!");
-            println!("plugin {} sent ready message.", plugin.get_id());
+            debug!("plugin {} sent ready message.", plugin.get_id());
 
             // TODO -- couldn't get this error handling to work...
             // .map_err(|_e| EngineError::PluginSyncSendError(plugin.get_id()))?;
@@ -387,7 +393,7 @@ impl App {
                 .recv_msg(0)
                 .expect("plugin got error trying to receive sync reply; crashing!");
 
-            println!(
+            debug!(
                 "plugin {} received reply from ready message. Executing start function...",
                 plugin.get_id()
             );
@@ -396,7 +402,7 @@ impl App {
             plugin
                 .start(pub_socket, sub_socket, external_socket)
                 .unwrap();
-        });
+        }).expect(&format!("Could not spawn new thread for external plugin ({},{})", plugin_name, plugin_id));
 
         Ok(thread_handle)
     }
@@ -421,7 +427,7 @@ impl App {
         let mut external_plugin_ids: Vec<Uuid> =
             self.external_plugins.iter().map(|x| x.get_id()).collect();
         plugin_ids.append(&mut external_plugin_ids);
-        println!("Engine will now sync these plugins: {:?}", plugin_ids);
+        debug!("Engine will now sync these plugins: {:?}", plugin_ids);
 
         for plugin_id in &plugin_ids {
             let sync_socket = context
@@ -431,7 +437,7 @@ impl App {
             // bind sync socket to inproc URL
             let plugin_sync_socket_inproc_url =
                 format!("{}-{}", &socket_data.sync_inproc_url, plugin_id);
-            println!(
+            debug!(
                 "Engine binding to sync inproc URL: {}",
                 &plugin_sync_socket_inproc_url
             );
@@ -444,11 +450,11 @@ impl App {
             let _msg = sync_socket
                 .recv_msg(0)
                 .map_err(EngineError::EngineSyncSocketMsgRcvError)?;
-            println!("Engine received a ready message from plugin {}", plugin_id);
+            debug!("Engine received a ready message from plugin {}", plugin_id);
             sync_sockets.push(sync_socket);
         }
 
-        println!("Engine received all ready messages; now sending replies.");
+        debug!("Engine received all ready messages; now sending replies.");
 
         // send a reply to all plugins
         let mut msg_sent = 0;
@@ -461,9 +467,9 @@ impl App {
                 .send(reply, 0)
                 .map_err(EngineError::EngineSyncSocketSendRcvError)?;
             msg_sent += 1;
-            println!("Engine sent a reply");
+            debug!("Engine sent a reply");
         }
-        println!("All plugins have been synced");
+        debug!("All plugins have been synced");
 
         Ok(())
     }
@@ -518,19 +524,19 @@ impl App {
     }
 
     pub fn run(self) -> Result<(), EngineError> {
-        println!("Engine starting application with {} plugins and {} external plugins on publish port: {} and subscribe port: {}.", self.plugins.len(), self.external_plugins.len(), self.app_config.publish_port, self.app_config.subscribe_port);
+        info!("Engine starting application with {} plugins and {} external plugins on publish port: {} and subscribe port: {}.", self.plugins.len(), self.external_plugins.len(), self.app_config.publish_port, self.app_config.subscribe_port);
         // incoming and outgoing sockets for the engine
         let outgoing = self.get_outgoing_socket()?;
         let incoming = self.get_incoming_socket()?;
 
-        println!("Engine starting zmq proxy.");
+        info!("Engine starting zmq proxy.");
 
         let _proxy_thread = thread::spawn(move || {
             let _result = zmq::proxy(&incoming, &outgoing)
                 .expect("Engine got error running proxy; socket was closed?");
         });
 
-        println!("Engine has started proxy thread. Will now start and sync plugins");
+        debug!("Engine has started proxy thread. Will now start and sync plugins");
 
         // start plugins in their own thread
         let plugin_thread_handles = self.start_plugins()?;
@@ -541,7 +547,7 @@ impl App {
         // sync all plugins (internal and external)
         self.sync_plugins(&self.context)?;
 
-        println!("All plugins started and synced; Will now wait for plugins to exit...");
+        info!("All plugins started and synced; Will now wait for plugins to exit...");
 
         // join all of the plugin threads, and when they are all complete, we can kill the entire
         // program
@@ -549,7 +555,7 @@ impl App {
             h.join().unwrap();
         }
 
-        println!(
+        info!(
             "Engine joined all internal plugin threads; will now join external plugin threads."
         );
         for h in external_plugin_thread_handles {
@@ -558,7 +564,7 @@ impl App {
         // join all external plugins as well; if we don't there are still race conditions because external
         // plugins could be slow to start and the main program could quit before they have received messages
 
-        println!("Engine joined all plugin threads.. ready to shut down.");
+        info!("Engine joined all plugin threads.. ready to shut down.");
         // all plugins have exited so let's kill the proxy thread now
         // TODO -- is there a way to shut down the proxy thread using the handle? if we just exit
         // here without terminating it, is that ok?
@@ -571,6 +577,8 @@ impl App {
 mod tests {
 
     use std::{str, sync::Arc, vec};
+
+    use log::{info, debug};
 
     use zmq::Socket;
 
@@ -681,17 +689,16 @@ mod tests {
         }
     }
     impl Plugin for MsgProducerPlugin {
+        fn get_name(&self) -> String {
+            "MsgProducerPlugin".to_string()
+        }
         fn start(
             &self,
             pub_socket: Socket,
             sub_socket: Socket,
         ) -> Result<(), crate::errors::EngineError> {
-            println!(
+            info!(
                 "MsgProducer (plugin id {}) start function starting...",
-                self.get_id()
-            );
-            println!(
-                "MsgProducer (plugin id {}) finished 1 second sleep",
                 self.get_id()
             );
 
@@ -701,32 +708,32 @@ mod tests {
                 let message = format!("This is message {}", total_messages_sent);
                 let m = TypeAEvent { message };
                 let data = m.to_bytes().unwrap();
-                println!("MsgProducer sending bytes: {:?}", data);
+                debug!("MsgProducer sending bytes: {:?}", data);
                 pub_socket.send(data, 0).unwrap();
                 total_messages_sent += 1;
-                println!(
+                debug!(
                     "MsgProducer sent TypeA event message: {}",
                     total_messages_sent
                 );
             }
-            println!("MsgProducer has sent all TypeA event messages, now waiting to receive TypeB events");
+            info!("MsgProducer has sent all TypeA event messages, now waiting to receive TypeB events");
 
             // now get the TypeB events
             let mut total_messages_read = 0;
             while total_messages_read < 5 {
                 // get the bytes of a new message; it should be of TypeB
                 let b = sub_socket.recv_bytes(0).unwrap();
-                println!("MsgProducer received TypeB message; bytes: {:?}", b);
+                debug!("MsgProducer received TypeB message; bytes: {:?}", b);
                 let event_msg = TypeBEvent::from_bytes(b).unwrap();
                 let count = event_msg.count;
-                println!("Got a type B message; count was: {}", count);
+                debug!("Got a type B message; count was: {}", count);
                 total_messages_read += 1;
-                println!(
+                debug!(
                     "MsgProducer received TypeB event message: {}",
                     total_messages_read
                 );
             }
-            println!("MsgProducer has received all TypeB event messages; now exiting.");
+            info!("MsgProducer has received all TypeB event messages; now exiting.");
 
             Ok(())
         }
@@ -754,12 +761,16 @@ mod tests {
         }
     }
     impl Plugin for CounterPlugin {
+        fn get_name(&self) -> String {
+            "CounterPlugin".to_string()
+        }
+
         fn start(
             &self,
             pub_socket: Socket,
             sub_socket: Socket,
         ) -> Result<(), crate::errors::EngineError> {
-            println!(
+            info!(
                 "Counter (plugin id {}) start function starting...",
                 self.get_id()
             );
@@ -771,7 +782,7 @@ mod tests {
                 let event_msg = TypeAEvent::from_bytes(b).unwrap();
                 let count = event_msg.message.len();
                 total_messages_read += 1;
-                println!(
+                debug!(
                     "Counter plugin received TypeA message: {}",
                     total_messages_read
                 );
@@ -779,9 +790,9 @@ mod tests {
                 let m = TypeBEvent { count };
                 let data = m.to_bytes().unwrap();
                 pub_socket.send(data, 0).unwrap();
-                println!("Counter plugin sent TypeB message: {}", total_messages_read);
+                debug!("Counter plugin sent TypeB message: {}", total_messages_read);
             }
-            println!("Counter plugin has sent all TypeB messages; now exiting.");
+            info!("Counter plugin has sent all TypeB messages; now exiting.");
 
             Ok(())
         }
@@ -799,17 +810,17 @@ mod tests {
     #[test]
     fn test_run_app() -> Result<(), String> {
         // the plugins for our app
-        println!("inside the test_run_app");
+        info!("Top of the test_run_app");
         let msg_producer = MsgProducerPlugin::new();
         let counter = CounterPlugin::new();
-        println!("plugins for test_run_app configured");
+        info!("plugins for test_run_app configured");
         let app: App = App::new(5559, 5560);
         app.register_plugin(Arc::new(Box::new(msg_producer)))
             .register_plugin(Arc::new(Box::new(counter)))
             // .register_external_plugin(publish_port, subscribe_port)
             .run()
             .map_err(|e| format!("Got error from Engine! Details: {}", e))?;
-        println!("returned from test_run_app.run()");
+        info!("returned from test_run_app.run()");
         Ok(())
     }
 
