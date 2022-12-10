@@ -1,0 +1,7 @@
+message_type = "StringData"
+
+num_messages = 1000000
+
+min_message_size = 100
+
+max_message_size = 1000

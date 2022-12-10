@@ -1,0 +1,18 @@
+[package]
+name = "ee-load-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+zmq = "0.9"
+event-engine = { path = "../event-engine"}
+uuid = { version = "1.1", features = ["v4"] }
+log = "0.4"
+log4rs = "1.1"
+serde = "1.0"
+serde_derive = "1.0"
+anyhow = "1.0"
+toml = "0.5"
+lazy_static = "1.4"
