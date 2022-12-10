@@ -59,6 +59,45 @@ directory of this repository, has been written to simplify the process of writin
 There is also a Docker image, `tapis/pyevents`, which can be used to build a standalone container
 with a Python plugin.
 
+### External Plugins
+
+There are two possible approaches to implementing external plugins in an application built with
+`event-engine`. The first approach utilizes the TCP ports that the main (Rust) application is configured
+with to directly receive all event messages and to publish messages. With this approach, the application 
+need not register the external plugins at all -- they are separate processes that read and write from the
+TCP socket without the engine's direct knowledge. However, in this case, the application must
+take care of synchronizing the external plugins with the rest of the application. Otherwise, it is possible
+that external plugins will miss initial events sent by other plugins that start up more quickly. Additionally,
+the plugin itself must take care of filtering the events it is interested in -- all events are published
+to the application's TCP port, and no subscription filtering is done for the external plugin.
+
+The other approach is to register the external plugins with the engine. The benefit to this approach is that
+the engine will take care of synchronization and event filtering. The way this works is as follows:
+when the external plugin is registered with the engine, its subscriptions as well as a single TCP port
+are provided as part of the `ExternalPlugin` trait. The engine starts a thread for the external plugin, 
+just as it would an internal plugin, and it configures an inproc zmq socket for it that will only 
+receive the events it is subscribed to. The actual process comprising the external plugin then interacts
+with this thread using the TCP port. It uses a `REQ-REP` zmq socket to send commands to do the following
+actions:
+
+  1. Receive the next message: Send a string message with contents `plugin_command: next_msg`
+  2. Publish a message: Send any raw binary data payload that does not begin with a special plugin command
+     string.
+  3. Shut down the plugin: Send a string message with contents: `plugin_command: quit`
+
+When 1) is encountered by the external plugin thread running within the main program, the thread responds
+with the (binary) payload of the next message in its queue. Note that it does this by making an internal call
+to `recv_bytes` on its subscriptions socket, which means that if there are no new messages, the call will
+block.
+
+The use of 3) allows the main engine of the application to shut down the associated thread once the plugin's
+execution has completed.
+
+### External Python Plugins
+
+Note that for external plugins written in Python, a small library, `events.py`, has been written to help 
+accomplish 1), 2) and 3) from the previous section. The associated Docker image, `tapis/pyevents` can be 
+used as a base image for building plugins in Python, and it includes zmq as well as `events.py`. 
 
 ## Example
 
