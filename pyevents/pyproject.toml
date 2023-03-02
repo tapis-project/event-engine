@@ -1,0 +1,15 @@
+[tool.poetry]
+name = "pyevents"
+version = "0.1.0"
+description = "Python package for developing event-engine plugins in Python."
+authors = ["Joe Stubbs <joestubbs5@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pyzmq = "^25.0.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
