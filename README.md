@@ -153,4 +153,8 @@ plugin. Once a plugin thread has received an "ok" reply, its start function is e
 
 ## Developing `event-engine`
 
-Working 
+*Work in progress* 
+
+
+# Acknowledgement 
+This work has been funded by grants from the National Science Foundation, including the ICICLE AI Institute (OAC 2112606) and Tapis (OAC 1931439). 
