@@ -44,13 +44,18 @@ def get_plugin_socket(context, port, host="engine"):
     return plugin_socket
 
 
-def get_next_msg(socket):
+def get_next_msg(socket, timeout=-1):
     """
     Get the next message for this plugin.
+    This function blocks until the next message is returned, or until the `timeout`, in milliseconds.
+    If the timeout is reached before a message is ready, a zmq.error.Again ("Resource temporarily unavailable")
+    exception is raised.
+
     Note that this function returns raw bytes and these bytes will typically need to be converted into the
     message format of your application.
     """
     print("top of get_next_msg; making request for next message")
+    socket.RCVTIMEO = timeout
     try:
         socket.send_string("plugin_command: next_msg")
     except Exception as e:
