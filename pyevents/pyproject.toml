@@ -1,9 +1,12 @@
 [tool.poetry]
-name = "pyevents"
+name = "tapis-pyevents"
 version = "0.1.0"
 description = "Python package for developing event-engine plugins in Python."
 authors = ["Joe Stubbs <joestubbs5@gmail.com>"]
 readme = "README.md"
+packages = [
+    { include = "pyevents" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.8"
