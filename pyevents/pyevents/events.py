@@ -86,10 +86,17 @@ def publish_msg(socket, data):
                 print(f"Got exception trying to publish a new message; details: {e}")
                 raise e
     # wait for the reply
-    reply = socket.recv_string()
-    if not "event-engine: msg published" in reply:
-        print(f"unexpected response from engine when trying to publish a message; response: {reply}")
-    return reply
+    poller = zmq.Poller()
+    poller.register(socket, zmq.POLLIN)
+    socks = dict(poller.poll(1000))
+    if socket in socks and socks[socket] == zmq.POLLIN:
+        reply = socket.recv_string()
+        if not "event-engine: msg published" in reply:
+            print(f"unexpected response from engine when trying to publish a message; response: {reply}")
+        return reply
+    else:
+        print("no response from engine when trying to publish a new message")
+        return None
 
 
 def send_quit_command(socket):
