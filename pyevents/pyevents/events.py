@@ -33,7 +33,6 @@ send_quit_command(socket)
 
 """
 import zmq
-import time
 
 def get_plugin_socket(context, port, host="engine"):
     """
@@ -75,16 +74,11 @@ def publish_msg(socket, data):
     `data` should be a raw byte array
     Returns the reply from the engine.
     """
-    while True:
-        try:
-            socket.send(data, zmq.NOBLOCK)
-            break
-        except zmq.ZMQError as e:
-            if e.errno == zmq.EAGAIN:
-                time.sleep(0.1)
-            else:
-                print(f"Got exception trying to publish a new message; details: {e}")
-                raise e
+    try:
+        socket.send(data)
+    except Exception as e:
+        print(f"Got exception trying to publish a new message; details: {e}")
+        raise e
     # wait for the reply
     poller = zmq.Poller()
     poller.register(socket, zmq.POLLIN)
