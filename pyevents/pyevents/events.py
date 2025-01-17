@@ -88,7 +88,7 @@ def publish_msg(socket, data):
     # wait for the reply
     poller = zmq.Poller()
     poller.register(socket, zmq.POLLIN)
-    socks = dict(poller.poll(1000))
+    socks = dict(poller.poll())
     if socket in socks and socks[socket] == zmq.POLLIN:
         reply = socket.recv_string()
         if not "event-engine: msg published" in reply:
